@@ -62,6 +62,17 @@ describe('numbers', () => {
     expect(checkWords(pay, words).ok).toBe(true);
   });
 
+  it('reads "par" before a payment channel or a time word as "by", not as a price for one', () => {
+    const words = 'Vendu 3 sacs de riz 15000 FCFA par Orange Money';
+    const right = r({ items: [{ name: 'riz', quantity: 3, unit_price: 5000, line_total: 15000 }], total: 15000, currency: 'XOF' });
+    expect(checkWords(right, words).ok).toBe(true);
+    for (const tail of ['par mobile money', 'par carte', 'par wave', 'par jour', 'par mois', 'par Awa']) {
+      expect(amountsIn(`Payé 15000 FCFA ${tail}`)[0].each).toBe(false);
+    }
+    expect(amountsIn('Vendu 2 sacs de riz à 5000 FCFA par sac').find((x) => x.value === 5000)?.each).toBe(true);
+    expect(amountsIn('Vendu 3 bouteilles à 750 FCFA par bouteille').find((x) => x.value === 750)?.each).toBe(true);
+  });
+
   it("catches a French price for one read as the line's total", () => {
     const words = "Vendu 2 sacs de riz à 5000 FCFA l'unité";
     const wrong = r({ items: [{ name: 'riz', quantity: 2, unit_price: 2500, line_total: 5000 }], total: 5000, currency: 'XOF' });

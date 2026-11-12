@@ -48,6 +48,13 @@ describe('redact', () => {
     expect(isClean(r.text, r.map)).toBe(true);
   });
 
+  it('takes out a known name with an underscore stuck to it', () => {
+    const r = redact('Sold 2 Cokes to thandi_m and Thandi_2', ['Thandi']);
+    expect(r.text).toBe('Sold 2 Cokes to [PERSON_1]_m and [PERSON_1]_2');
+    expect(isClean(r.text, r.map)).toBe(true);
+    expect(isClean('Sold 2 Cokes to thandi_m', r.map)).toBe(false);
+  });
+
   it('takes the longest known name out of the problem lines first', () => {
     const red = redact('Sold 3 loaves to Thandi', ['Thandi', 'Thandi Moyo']);
     const line = redactAlso('"loaves for Thandi Moyo" has a quantity of 0.', red, ['Thandi', 'Thandi Moyo']);

@@ -30,6 +30,22 @@ function toNumber(whole: string, cents: string | undefined, k: string | undefine
   return k ? n * 1000 : n;
 }
 
+// A currency word that may sit between an amount and the word that makes it a price for one ("5000 FCFA chacun").
+const CURRENCY_WORD = '(?:(?:dollars?|rands?|shillings?|rupees?|francs?|euros?|naira|cedis?|bob|[A-Z]{3}|CFA|FCFA|USD|ZiG)\\s*)?';
+
+// French "par" is "for each" before a unit ("par sac", "par bouteille") but "by" or "a" before a person, a way of
+// paying or a stretch of time ("par Awa", "par Orange Money", "par carte", "par jour"). A name or a brand starts with a
+// capital, so only a lower-case word that is not a way of paying or a time counts.
+const PAR_NOT_UNIT =
+  /^(?:jour|journée|semaine|mois|an|année|heure|carte|ch[eè]que|virement|transfert|mobile|wave|orange|m-?pesa|ecocash|moov|airtel|mtn|esp[eè]ces|cash|crédit|credit|t[ée]l[ée]phone|sms|whatsapp)(?![\p{L}\p{N}_])/iu;
+
+function parForOne(after: string): boolean {
+  const m = new RegExp(`^\\s*${CURRENCY_WORD}par\\s+(\\p{L}[\\p{L}'’-]*)`, 'iu').exec(after);
+  if (!m) return false;
+  // Tested without the i flag, which would let \p{Ll} match a capital too.
+  return /^\p{Ll}/u.test(m[1]) && !PAR_NOT_UNIT.test(m[1]);
+}
+
 /** Every number written in digits, with whether the text marks it as a price for one unit. */
 export function amountsIn(text: string): Amount[] {
   const out: Amount[] = [];
@@ -40,7 +56,8 @@ export function amountsIn(text: string): Amount[] {
     const before = text.slice(Math.max(0, index - 3), index);
     const each =
       m[0].trimStart().startsWith('@') ||
-      /^\s*(?:(?:dollars?|rands?|shillings?|rupees?|francs?|euros?|naira|cedis?|bob|[A-Z]{3}|CFA|FCFA|USD|ZiG)\s*)?(?:each|per|par|apiece|a piece|chacun|chacune|l['’]unit[ée]|la pièce|kila mmoja|kila moja)(?![\p{L}\p{N}_])/iu.test(after) ||
+      new RegExp(`^\\s*${CURRENCY_WORD}(?:each|per|apiece|a piece|chacun|chacune|l['’]unit[ée]|la pièce|kila mmoja|kila moja)(?![\\p{L}\\p{N}_])`, 'iu').test(after) ||
+      parForOne(after) ||
       /@\s*$/.test(before);
     out.push({ value, each, index });
   }
