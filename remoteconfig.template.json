@@ -6,7 +6,7 @@
       "valueType": "STRING"
     },
     "second_opinion_model": {
-      "defaultValue": { "value": "gemini-3.8-flash" },
+      "defaultValue": { "value": "gemini-3.6-flash" },
       "description": "Cloud model asked for a second opinion when the device's reading fails a check.",
       "valueType": "STRING"
     },

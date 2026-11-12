@@ -50,7 +50,7 @@ export interface Settings {
 
 export const DEFAULTS: Settings = {
   cloudModel: 'gemini-3.5-flash-lite',
-  secondOpinionModel: 'gemini-3.8-flash',
+  secondOpinionModel: 'gemini-3.6-flash',
   secondOpinion: true,
   maxCloudCallsPerDay: 60,
 };
