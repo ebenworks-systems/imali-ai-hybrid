@@ -1,7 +1,7 @@
 // Hybrid inference with Firebase AI Logic. Every reading starts on the device with Gemini Nano; the cloud model is
 // asked only when the device cannot read the input (its language, a voice note, no on-device model) or when the
-// device's reading fails the book's checks. Names and phone numbers the redactor finds (src/privacy/redact.ts: names in the
-// book and capitalised names) are swapped for placeholders before the words leave the device.
+// device's reading fails the book's checks. The names and phone numbers the redactor finds (src/privacy/redact.ts) are
+// swapped for placeholders before the words leave the device.
 
 import { getGenerativeModel, InferenceMode, type Part } from 'firebase/ai';
 import { ai, cloudConfigured, type Settings } from './firebase';
@@ -424,7 +424,7 @@ export async function finishWords(entry: Entry, given: Context): Promise<Entry> 
   }
 
   try {
-    ctx.onStep?.(first ? 'A check failed: asking the cloud for a second opinion, names taken out' : 'Asking the cloud, names taken out');
+    ctx.onStep?.(first ? 'A check failed: asking the cloud for a second opinion, with the names found taken out' : 'Asking the cloud, with the names found taken out');
     const second = await cloudRead(words, ctx, first ? first.check.problems : null, why);
     entry.hops.push(second.hop);
     if (first) entry.firstReading = first.reading;
@@ -574,7 +574,7 @@ export async function readQuestion(question: string, ctx: Context): Promise<{ qu
   const red = redact(question, ctx.knownNames);
   if (!isClean(red.text, red.map, red.parts, ctx.knownNames)) throw new Error('A name was still in the question; nothing was sent.');
   const prompt = askPrompt(red.text, today);
-  ctx.onStep?.('Asking the cloud what the question means, names taken out');
+  ctx.onStep?.('Asking the cloud what the question means, with the names found taken out');
   const r = await cloudCall<unknown>([{ type: 'text', text: prompt }], ctx, {
     language: 'en',
     cloudModel: ctx.settings.cloudModel,

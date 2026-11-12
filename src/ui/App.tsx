@@ -548,8 +548,8 @@ export function App() {
             <h2 id="composer-title">Tell the book</h2>
             <p className="sub">
               {deviceReady
-                ? `${DEVICE_MODEL} reads English, French and Spanish here, offline too. Other languages go to the cloud with names taken out.`
-                : `Without ${DEVICE_MODEL} on this device, each reading goes to the cloud with names taken out.`}
+                ? `${DEVICE_MODEL} reads English, French and Spanish here, offline too. Other languages go to the cloud, with the names the app finds taken out.`
+                : `Without ${DEVICE_MODEL} on this device, each reading goes to the cloud, with the names the app finds taken out.`}
             </p>
             <div className="tabs" role="tablist" aria-label="What to add">
               {(
