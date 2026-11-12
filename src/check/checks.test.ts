@@ -66,11 +66,24 @@ describe('numbers', () => {
     const words = 'Vendu 3 sacs de riz 15000 FCFA par Orange Money';
     const right = r({ items: [{ name: 'riz', quantity: 3, unit_price: 5000, line_total: 15000 }], total: 15000, currency: 'XOF' });
     expect(checkWords(right, words).ok).toBe(true);
-    for (const tail of ['par mobile money', 'par carte', 'par wave', 'par jour', 'par mois', 'par Awa']) {
+    for (const tail of ['par mobile money', 'par carte', 'par wave', 'par jour', 'par mois', 'par Awa', 'par momo', 'par mon frère', 'par le client', 'par lui']) {
       expect(amountsIn(`Payé 15000 FCFA ${tail}`)[0].each).toBe(false);
     }
+    expect(checkWords(right, 'Vendu 3 sacs de riz 15000 FCFA par mon frère').ok).toBe(true);
     expect(amountsIn('Vendu 2 sacs de riz à 5000 FCFA par sac').find((x) => x.value === 5000)?.each).toBe(true);
     expect(amountsIn('Vendu 3 bouteilles à 750 FCFA par bouteille').find((x) => x.value === 750)?.each).toBe(true);
+  });
+
+  it('reads "par" before a unit as a price for one in capitals, after F or francs CFA, and before the item\'s own word', () => {
+    const at5000 = (s: string) => amountsIn(s).find((x) => x.value === 5000)?.each;
+    expect(at5000('VENDU 2 SACS À 5000 FCFA PAR SAC')).toBe(true);
+    expect(at5000('Vendu 2 sacs à 5000 F par sac')).toBe(true);
+    expect(at5000('Vendu 2 sacs à 5000 francs CFA par sac')).toBe(true);
+    expect(at5000('Vendu 2 sacs à 5000F chacun')).toBe(true);
+    expect(at5000('Vendu 2 calebasses à 5000 FCFA par calebasse')).toBe(true);
+    const words = 'VENDU 2 SACS À 5000 FCFA PAR SAC';
+    const wrong = r({ items: [{ name: 'riz', quantity: 2, unit_price: 2500, line_total: 5000 }], total: 5000, currency: 'XOF' });
+    expect(checkWords(wrong, words).ok).toBe(false);
   });
 
   it("catches a French price for one read as the line's total", () => {
