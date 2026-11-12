@@ -255,3 +255,35 @@ describe('round 14 (EBE-11444)', () => {
     expect(placeholderLeft({ items: [{ name: 'airtime for Phone 1' }] }, red.map, said)).not.toBeNull();
   });
 });
+
+describe('round 15 (EBE-11444)', () => {
+  it('takes out an eight-digit phone and one written with no-break spaces', () => {
+    for (const [said, phone] of [
+      ['Pay Awa 70 12 34 56 tomorrow', '70 12 34 56'],
+      ['Call 7123 4567 for the bread', '7123 4567'],
+      ['Phone 077 123 4567 paid 30', '077 123 4567'],
+      ['Phone 077 123 4567 paid 30', '077 123 4567'],
+    ]) {
+      const red = redact(said, []);
+      expect(red.text).not.toContain(phone);
+      expect(Object.values(red.map)).toContain(phone);
+      expect(isClean(said, red.map)).toBe(false);
+      expect(isClean(red.text, red.map)).toBe(true);
+    }
+  });
+
+  it('keeps an amount next to a phone, a list of prices and a date', () => {
+    const a = redact('Sold 2 bread for R30 (0771234567)', []);
+    expect(a.text).toBe('Sold 2 bread for R30 ([PHONE_1])');
+    expect(a.map['[PHONE_1]']).toBe('0771234567');
+    expect(redact('Thandi owes R30. 0771234567', []).text).toBe('[PERSON_1] owes R30. [PHONE_1]');
+    expect(redact('Sold 3 loaves 12.50 25.00 37.50', []).text).toBe('Sold 3 loaves 12.50 25.00 37.50');
+    expect(redact('Paid on 12.11.2026 and 12-11-2026', []).text).toBe('Paid on 12.11.2026 and 12-11-2026');
+  });
+
+  it("does not take an item the owner calls 'Phone 2' for a placeholder, whole or inside a value", () => {
+    expect(placeholderLeft({ items: [{ name: 'Phone 2' }] }, {}, 'Sold Phone 2 for R50')).toBeNull();
+    const red = redact('Sold Phone 2 to 0771234567 for R50', []);
+    expect(placeholderLeft({ items: [{ name: 'Phone 2' }] }, red.map, 'Sold Phone 2 to 0771234567 for R50')).toBeNull();
+  });
+});

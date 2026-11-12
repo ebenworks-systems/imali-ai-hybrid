@@ -12,18 +12,30 @@ export interface Redacted {
   parts?: string[];
 }
 
-/** A run of digits, spaces, brackets, dots, slashes and hyphens: a phone number when it holds nine digits or more. */
-const PHONE = /\+?\(?\d[\d \t().\/-]{7,}\d/g;
+/**
+ * Digits with at most one separator between them (a space of any kind but a new line, a dash, a dot or a slash), after
+ * an optional "+" and "(area code)". `isPhone` decides whether such a run is a phone number.
+ */
+const PHONE = /\+?(?:\(\d{1,4}\)[^\S\n]?)?\d(?:(?:[^\S\n]|\p{Pd}|[./])?\d){5,}/gu;
 const digitCount = (s: string) => s.replace(/\D/g, '').length;
+
+/**
+ * Eight digits or more (Burkina Faso, Mali, Niger, Togo and Botswana numbers have eight), except a date ("12/11/2026")
+ * and a list of prices ("12.50 25.00 37.50").
+ */
+const isPhone = (s: string) =>
+  digitCount(s) >= 8 &&
+  !/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(s) &&
+  !(/\s/.test(s) && /\d\.\d{2}(?!\d)/.test(s));
 
 /** A phone number's digits with the leading + and zeros gone, so "0771234567" and the device's 771234567 match. */
 const phoneDigits = (s: string) => s.replace(/\D/g, '').replace(/^0+/, '');
 
 /**
- * Nine digits or more written the way a phone is ("077 123 4567", "+263...", "(077) 123-4567", "0771234567"). A plain
- * run with no leading 0 ("1500000000") is how the device prints an amount, so it is not one.
+ * A phone written the way a phone is ("077 123 4567", "+263...", "(077) 123-4567", "0771234567"). A plain run with no
+ * leading 0 ("1500000000") is how the device prints an amount, so it is not one.
  */
-const looksLikePhone = (s: string) => digitCount(s) >= 9 && (/\D/.test(s) || /^0/.test(s));
+const looksLikePhone = (s: string) => isPhone(s) && (/\D/.test(s) || /^0/.test(s));
 
 /**
  * The placeholder of the owner's phone that these digits are, wholly or in part (six digits or more), or undefined.
@@ -134,7 +146,7 @@ export function redact(text: string, known: string[] = []): Redacted {
   }
   let p = 0;
   out = out.replace(PHONE, (match) => {
-    if (digitCount(match) < 9) return match; // a date such as 12/11/2026 or a short amount
+    if (!isPhone(match)) return match; // a date, a list of prices or a short amount
     const key = `[PHONE_${++p}]`;
     map[key] = match;
     return key;
@@ -229,8 +241,9 @@ export function placeholderIn(value: unknown, phoneSent?: (hit: string) => boole
       /\bPERSON[\s_-]?\d+/i.exec(value)?.[0] ??
       /\bPHONE[\s_-]?\d+/.exec(value)?.[0] ??
       /\bphone_\d+/i.exec(value)?.[0] ??
-      /^\s*[[{<]?(phone[\s_-]?\d+)[\]}>]?\s*$/i.exec(value)?.[1] ??
-      // "Phone 1" anywhere in a value is a sent phone placeholder rewritten, when `phoneSent` says it is one.
+      // "Phone 1" as the whole value is a phone placeholder rewritten (only one `phoneSent` accepts, when given), and
+      // inside a value only when `phoneSent` says so.
+      [/^\s*[[{<]?(phone[\s_-]?\d+)[\]}>]?\s*$/i.exec(value)?.[1]].find((h) => h && (!phoneSent || phoneSent(h))) ??
       [...value.matchAll(/\bphone[\s_-]?\d+\b/gi)].map((m) => m[0]).find((h) => phoneSent?.(h)) ??
       null
     );
