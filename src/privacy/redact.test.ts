@@ -718,3 +718,37 @@ describe('second review round 21 (EBE-11682)', () => {
     expect(isClean(`again ${'123 '.repeat(20000)}`, red.map, red.parts)).toBe(false);
   });
 });
+
+describe('second review round 21, second pass (EBE-11682)', () => {
+  const clean = (said: string) => {
+    const red = redact(said, []);
+    return isClean(red.text, red.map, red.parts);
+  };
+
+  it('lets a date, time or price beside an amount across a spaced mark through', () => {
+    for (const said of [
+      '12/11/2026 - 1500 bread',
+      '12.11.2026 - 25000',
+      '12/11/2026 (1500)',
+      'Paid 1500 (12/11/2026)',
+      '14:00 - 2500 cash',
+      'Shift 08:00-16:00 = 2500',
+      'Sold 12 @ 1250.00 = 15000.00',
+    ]) {
+      expect(clean(said), said).toBe(true);
+    }
+    expect(clean('Call 21.25) 5551234')).toBe(false);
+    expect(clean('Call 21.25)555 1234')).toBe(false);
+  });
+
+  it('takes a sum after a count as amounts', () => {
+    for (const said of [
+      'Week 2 1500 + 2500 = 4000',
+      'Bread 2 1500 + 700 = 2200',
+      'Room 12 2,500 + 1,500 = 4,000',
+      'Stall 7 12 500 + 7 500 = 20 000',
+    ]) {
+      expect(clean(said), said).toBe(true);
+    }
+  });
+});

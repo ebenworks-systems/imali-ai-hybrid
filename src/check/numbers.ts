@@ -54,7 +54,7 @@ const ARTICLES = 'un|une|a|an';
 /** Verbs that open a clause other than the sale's. */
 const OTHER_VERBS =
   're[cç]u(?:e|s|es)?|livr[eé](?:e|s|es)?|ach[eéè]t[eé]?(?:e|s|es)?|pay[eé](?:e|s|es)?|command[eé](?:e|s|es)?|' +
-  'pris(?:e|es)?|arriv[eé](?:e|s|es)?|received|got|delivered|bought|ordered|paid';
+  'pai(?:e|es|ent)|re[cç]oi(?:s|t|vent)|pris(?:e|es)?|arriv[eé](?:e|s|es)?|received|got|delivered|bought|ordered|paid';
 /** Words for the customer, after which a verb's participle describes them ("à un client payé cash"). */
 const PERSON_WORDS = 'clients?|clientes?|customers?|amie?s?|voisine?s?|dame|dames|monsieur|madame|femme|homme|personne';
 /** Words before which "commande" or "paye" is a noun, not a verb ("sur commande", "avec la paye"). */

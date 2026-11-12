@@ -411,11 +411,11 @@ const TIME = /^\d{1,2}:\d{2}(?::\d{2})?(?:-\d{1,2}:\d{2}(?::\d{2})?)?$/;
 const SUM_NUM = String.raw`(?:\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d{1,3}(?:[^\S\n]\d{3})+|\d+(?:[.,]\d{1,2})?)`;
 /**
  * A sum with its answer ("500 + 700 = 1200", "12000 / 4 = 3000", "2*500=1000", "1,500 + 2,000 = 3,500"), of at most 200
- * steps. It never starts inside a number, a group of space thousands or a chain, so a long chain or a long list of
- * thousands with no answer is read once, not from every number.
+ * steps. It never starts inside a number, on a group of space thousands ("1 000") or inside a chain, so a long chain or a
+ * long list of thousands with no answer is read once, not from every number; after a count it may ("Week 2 1500 + 2500").
  */
 export const SUM = new RegExp(
-  String.raw`(?<!\d[.,]?|\d[^\S\n]|\d[^\S\n]*[-+*×/][^\S\n]*)${SUM_NUM}(?:[^\S\n]*[-+*×/][^\S\n]*${SUM_NUM}){1,200}[^\S\n]*=[^\S\n]*${SUM_NUM}`,
+  String.raw`(?<!\d[.,]?|\d[^\S\n](?=\d{3}(?![\d.,]))|\d[^\S\n]*[-+*×/][^\S\n]*)${SUM_NUM}(?:[^\S\n]*[-+*×/][^\S\n]*${SUM_NUM}){1,200}[^\S\n]*=[^\S\n]*${SUM_NUM}`,
   'gu',
 );
 /** True when a SUM's sides are equal to the cent, times and divide first; a sum that does not hold proves nothing. */
@@ -470,7 +470,8 @@ function loosePhone(text: string): boolean {
     // group of one to three digits among them, are a phone written with odd marks ("263 . 77 . 123 . 4567",
     // "263 : 77 : 123", "263*77*123*4567").
     // A run with a phone's local part ("555-1234") keeps everything; elsewhere a plain group is taken out unless a mark
-    // other than a space or a comma joins it to a group that is not plain ("21.25)555 1234", "11-27)5551234").
+    // other than a space or a comma joins it to a group that is not plain, touching both ("21.25)555 1234",
+    // "11-27)5551234") or beside seven digits or more ("21.25) 5551234"); "12/11/2026 - 1500" and "12 @ 1250.00" stay.
     const local = groups.some((g) => /^\d+-\d+$/.test(g) && !plain(g));
     let left = run;
     let at = 0;
@@ -482,7 +483,7 @@ function loosePhone(text: string): boolean {
     if (!local) {
       for (const [i, s] of spans.entries()) {
         const joined = (o: (typeof spans)[number] | undefined, between: string) =>
-          !!o && !o.plain && /[^\s,]/.test(between);
+          !!o && !o.plain && /[^\s,]/.test(between) && (!/\s/.test(between) || digitCount(o.g) >= 7);
         const prev = spans[i - 1];
         const next = spans[i + 1];
         if (!s.plain || joined(prev, prev ? run.slice(prev.to, s.from) : '') || joined(next, next ? run.slice(s.to, next.from) : ''))

@@ -409,3 +409,15 @@ describe('second review round 21 (EBE-11682)', () => {
     expect(amountsIn('Vendu 2 sacs à 5000 par sac').find((a) => a.value === 5000)?.each).toBe(true);
   });
 });
+
+describe('second review round 21, second pass (EBE-11682)', () => {
+  it('ends the clause at "paie" or "reçois"', () => {
+    for (const words of [
+      "Vendu au voisin, j'en paie 2 cartons pour 12 par carton",
+      'Vendu au voisin, il en reçoit 2 cartons pour 12 par carton',
+      'Vendu au voisin, je reçois 2 cartons pour 12 par carton',
+    ]) {
+      expect(amountsIn(words).find((a) => a.value === 12)?.each, words).toBe(false);
+    }
+  });
+});
