@@ -1,7 +1,7 @@
 {
   "name": "Imali AI book",
   "short_name": "Imali AI",
-  "description": "A shop's book that works offline: Gemini Nano on the device, a cloud second opinion only when a check fails.",
+  "description": "A shop's book that works offline: Gemini Nano on the device, and the cloud only when a check fails or the device cannot read the words.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#FAFAF6",
