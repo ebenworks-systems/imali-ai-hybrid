@@ -151,6 +151,15 @@ describe('redact', () => {
     expect(isClean('Vendu 2 sacs de riz à Aimé, il paie samedi', r.map)).toBe(false);
   });
 
+  it('puts a name back when the model dropped or changed the brackets, and never into a longer number', () => {
+    const map = { '[PERSON_1]': 'Juma', '[PERSON_10]': 'Awa' };
+    expect(restore('PERSON_1', map)).toBe('Juma');
+    expect(restore('{PERSON_1} pays Ijumaa', map)).toBe('Juma pays Ijumaa');
+    expect(restore('<person_1>', map)).toBe('Juma');
+    expect(restore('PERSON_10 and PERSON_1', map)).toBe('Awa and Juma');
+    expect(restore('XPERSON_1', map)).toBe('XPERSON_1');
+  });
+
   it('puts the names back in a nested answer', () => {
     const map = { '[PERSON_1]': 'Thandi' };
     expect(restore({ person: '[PERSON_1]', items: [{ name: 'bread for [PERSON_1]' }] }, map)).toEqual({

@@ -152,7 +152,13 @@ export function redactAlso(text: string, red: Redacted, known: string[] = []): s
 export function restore<T>(value: T, map: Record<string, string>): T {
   if (typeof value === 'string') {
     let s: string = value;
-    for (const [k, v] of Object.entries(map)) s = s.split(k).join(v);
+    for (const [k, v] of Object.entries(map)) {
+      s = s.split(k).join(v);
+      // A cloud model sometimes drops the brackets or swaps them ("PERSON_1", "{PERSON_1}"), as gemini-3.5-flash-lite
+      // did for the Kiswahili example on 12 Nov 2026. The digit must end there, so PERSON_1 never takes PERSON_10.
+      const bare = /^\[([A-Z]+_\d+)\]$/.exec(k)?.[1];
+      if (bare) s = s.replace(new RegExp(`[[{<]?\\b${bare}\\b[\\]}>]?`, 'gi'), () => v);
+    }
     return s as T;
   }
   if (Array.isArray(value)) return value.map((v) => restore(v, map)) as T;

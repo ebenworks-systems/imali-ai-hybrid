@@ -6,6 +6,7 @@ import { getGenerativeModel, InferenceMode, type Part } from 'firebase/ai';
 import { ai, cloudConfigured, type Settings } from './firebase';
 import { askPrompt, QUERY_SCHEMA, READING_SCHEMA, readPrompt, receiptPrompt, receiptSecondOpinionPrompt, secondOpinionPrompt } from './prompts';
 import { checkReceipt, checkWords, type CheckResult } from '../check/checks';
+import { currencyIn } from '../check/numbers';
 import { isClean, redact, redactAlso, restore } from '../privacy/redact';
 import type { Entry, Hop, Query, Reading, Where } from '../book/types';
 import { INTENTS, KINDS, PERIODS } from '../book/types';
@@ -137,7 +138,12 @@ interface CallResult<T> {
   where: Where;
   model: string;
   ms: number;
+  /** The model asked first when it did not answer and the fallback model gave this result instead. */
+  missed?: string;
 }
+
+/** How long one cloud call may take. The SDK's own default is 180 seconds, too long for an owner at the counter. */
+export const CLOUD_TIMEOUT_MS = 60_000;
 
 function parseJson(text: string): unknown {
   const t = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '');
@@ -150,17 +156,21 @@ async function call<T>(
 ): Promise<CallResult<T>> {
   const expectedInputs: { type: 'text' | 'image'; languages?: string[] }[] = [{ type: 'text', languages: [opts.language] }];
   if (opts.image) expectedInputs.push({ type: 'image' });
-  const model = getGenerativeModel(ai, {
-    mode: opts.mode,
-    onDeviceParams: {
-      createOptions: { expectedInputs, expectedOutputs: [{ type: 'text', languages: ['en'] }] },
-      promptOptions: { responseConstraint: opts.schema },
+  const model = getGenerativeModel(
+    ai,
+    {
+      mode: opts.mode,
+      onDeviceParams: {
+        createOptions: { expectedInputs, expectedOutputs: [{ type: 'text', languages: ['en'] }] },
+        promptOptions: { responseConstraint: opts.schema },
+      },
+      inCloudParams: {
+        model: opts.cloudModel,
+        generationConfig: { responseMimeType: 'application/json', responseJsonSchema: opts.schema, temperature: 0 },
+      },
     },
-    inCloudParams: {
-      model: opts.cloudModel,
-      generationConfig: { responseMimeType: 'application/json', responseJsonSchema: opts.schema, temperature: 0 },
-    },
-  });
+    { timeout: CLOUD_TIMEOUT_MS },
+  );
   const t0 = performance.now();
   const result = await model.generateContent(parts);
   const ms = Math.round(performance.now() - t0);
@@ -169,11 +179,48 @@ async function call<T>(
   return { value: parseJson(result.response.text()) as T, where, model: where === 'device' ? DEVICE_MODEL : opts.cloudModel, ms };
 }
 
+/**
+ * A cloud call on the chosen model, then once on the fallback model when the first one gives no usable answer (a
+ * timeout, an overloaded or retired model, no free quota for it, or an answer that is not the form asked for). On the
+ * Gemini Developer API's free tier a larger model can stop answering for minutes while a smaller one still does, and a
+ * second opinion that never arrives leaves the entry waiting. The fallback's answer goes through the same checks.
+ */
+async function cloudCall<T>(
+  parts: Part[],
+  opts: { language: string; image?: boolean; cloudModel: string; fallbackModel?: string; schema: Record<string, unknown> },
+): Promise<CallResult<T>> {
+  const once = (cloudModel: string) => call<T>(parts, { ...opts, mode: InferenceMode.ONLY_IN_CLOUD, cloudModel });
+  try {
+    return await once(opts.cloudModel);
+  } catch (e) {
+    if (!opts.fallbackModel || opts.fallbackModel === opts.cloudModel) throw e;
+    return { ...(await once(opts.fallbackModel)), missed: opts.cloudModel };
+  }
+}
+
+/** The hop's reason, saying so when the chosen cloud model did not answer and the fallback did. */
+const because = (reason: string, r: CallResult<unknown>) =>
+  r.missed ? `${reason}; ${r.missed} did not answer, so ${r.model} was asked` : reason;
+
 // ---- tidying what a model returns ---------------------------------------------------------------------------------
 
 function num(v: unknown): number {
   const n = typeof v === 'number' ? v : Number(String(v ?? '').replace(/[^\d.-]/g, ''));
   return Number.isFinite(n) ? n : NaN;
+}
+
+/**
+ * The model's currency as a three-letter code. Gemini Nano wrote "CFA" for "5000 FCFA chacun" on 12 Nov 2026, which
+ * the currency check then failed against the XOF the words name. A name or symbol is read with the words' own table
+ * ("CFA", "FCFA" and "F CFA" are XOF, "KSh" is KES), and a bare symbol as it would read before an amount ("R" is ZAR,
+ * "Rs" INR, "$" USD).
+ */
+export function currencyCode(v: string | null, shopCurrency: string): string {
+  if (!v) return shopCurrency;
+  const named = currencyIn(v);
+  if (named) return named;
+  if (/^[A-Za-z]{3}$/.test(v)) return v.toUpperCase();
+  return currencyIn(`${v} 1`) ?? v.toUpperCase().slice(0, 3);
 }
 
 export function tidyReading(raw: unknown, shopCurrency: string): Reading {
@@ -187,7 +234,7 @@ export function tidyReading(raw: unknown, shopCurrency: string): Reading {
       return { name: text(it.name) ?? 'item', quantity: num(it.quantity), unit_price: num(it.unit_price), line_total: num(it.line_total) };
     }),
     total: num(o.total),
-    currency: (text(o.currency) ?? shopCurrency).toUpperCase().slice(0, 3),
+    currency: currencyCode(text(o.currency), shopCurrency),
     person: text(o.person),
     due: text(o.due),
   };
@@ -232,16 +279,16 @@ async function cloudRead(
   const lines = (problems ?? []).map((p) => redactAlso(p, red, ctx.knownNames));
   if (!isClean([red.text, ...lines].join('\n'), red.map, red.parts, ctx.knownNames)) throw new Error('A name was still in the words; nothing was sent.');
   const prompt = problems ? secondOpinionPrompt(red.text, ctx.shopCurrency, lines) : readPrompt(red.text, ctx.shopCurrency);
-  const r = await call<unknown>([{ type: 'text', text: prompt }], {
-    mode: InferenceMode.ONLY_IN_CLOUD,
+  const r = await cloudCall<unknown>([{ type: 'text', text: prompt }], {
     language: 'en',
     cloudModel: problems ? ctx.settings.secondOpinionModel : ctx.settings.cloudModel,
+    fallbackModel: problems ? ctx.settings.cloudModel : undefined,
     schema: READING_SCHEMA,
   });
   const reading = restore(tidyReading(r.value, ctx.shopCurrency), red.map);
   const n = Object.keys(red.map).length;
   const sent = `the words, with ${n === 0 ? 'no names to remove' : n === 1 ? '1 name removed' : `${n} names removed`}`;
-  return { reading, check: checkWords(reading, words), hop: hop(problems ? 'second-opinion' : 'read', r, reason, sent) };
+  return { reading, check: checkWords(reading, words), hop: hop(problems ? 'second-opinion' : 'read', r, because(reason, r), sent) };
 }
 
 export async function readWords(words: string, ctx: Context): Promise<Entry> {
@@ -399,16 +446,16 @@ export async function readReceipt(file: Blob, ctx: Context): Promise<Entry> {
   try {
     ctx.onStep?.('The lines did not add up: asking the cloud to read the photo again');
     const prompt = first ? receiptSecondOpinionPrompt(ctx.shopCurrency, first.check.problems) : receiptPrompt(ctx.shopCurrency);
-    const r = await call<unknown>([{ type: 'text', text: prompt }, image], {
-      mode: InferenceMode.ONLY_IN_CLOUD,
+    const r = await cloudCall<unknown>([{ type: 'text', text: prompt }, image], {
       language: 'en',
       image: true,
       cloudModel: first ? ctx.settings.secondOpinionModel : ctx.settings.cloudModel,
+      fallbackModel: first ? ctx.settings.cloudModel : undefined,
       schema: READING_SCHEMA,
     });
     const reading = tidyReading(r.value, ctx.shopCurrency);
     const check = checkReceipt(reading);
-    entry.hops.push(hop(first ? 'second-opinion' : 'receipt', r, why, 'the receipt photo'));
+    entry.hops.push(hop(first ? 'second-opinion' : 'receipt', r, because(why, r), 'the receipt photo'));
     if (first) entry.firstReading = first.reading;
     entry.reading = reading;
     entry.problems = check.problems;
