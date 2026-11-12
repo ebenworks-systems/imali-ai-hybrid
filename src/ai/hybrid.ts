@@ -374,7 +374,9 @@ export async function readWords(words: string, ctx: Context): Promise<Entry> {
 }
 
 /** Read (or re-read) an entry's words: on the device first, then the cloud only if needed and allowed. */
-export async function finishWords(entry: Entry, ctx: Context): Promise<Entry> {
+export async function finishWords(entry: Entry, given: Context): Promise<Entry> {
+  // Plain "shillings" follow the shop's currency when the entry was first read, not a later one.
+  const ctx: Context = { ...given, shopCurrency: entry.shopCurrency ?? given.shopCurrency };
   const words = entry.words;
   const onDevice = await deviceReads(entry.language);
   let first: { reading: Reading; check: CheckResult } | null = entry.reading.items.length

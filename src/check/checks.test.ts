@@ -298,6 +298,10 @@ describe('round 16 sale span (EBE-11626)', () => {
       'Vendu un sac, reçu 2 cartons pour 12 par carton',
       'Vendu un pagne, reçu 2 cartons pour 12 par carton',
       'Vendu une chèvre, reçu 2 sacs pour 5 par sac',
+      // Round 18: a second verb after "à une cliente" starts another clause.
+      'Vendu à une cliente, reçu 2 cartons pour 12 par carton',
+      'Vendu à une cliente, livré 2 cartons pour 12 par carton',
+      'Vendu pour une amie, reçu 2 cartons pour 12 par carton',
     ]) {
       expect(amountsIn(words).find((a) => a.value === 12 || a.value === 5)?.each).toBe(false);
     }

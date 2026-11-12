@@ -319,19 +319,17 @@ describe('round 16 (EBE-11626)', () => {
     expect(redact('Thandi owes R30. 0771234567', []).text).toBe('[PERSON_1] owes R30. [PHONE_1]');
   });
 
-  it('keeps an eight-digit amount next to money, a thousands amount and an ISO date', () => {
-    for (const said of [
-      'Sold a cow for UGX 25 000 000',
-      'Sold a cow for 25000000 shillings',
-      'Achat 12.500.000 F',
-      'Paid on 2026-11-12',
-      'Away 12/11-15/11',
-    ]) {
+  it('keeps an ISO date and a range of dates, and takes out an eight-digit amount rather than risk a phone', () => {
+    for (const said of ['Paid on 2026-11-12', 'Away 12/11-15/11', 'Away 12/11/2026-15/11/2026']) {
+      expect(redact(said, []).text).toBe(said);
+    }
+    // An amount of eight digits or more is taken out: the reading then cannot be checked, but no phone can pass for one.
+    for (const said of ['Sold a cow for UGX 25 000 000', 'Sold a cow for 25000000 shillings', 'Sold a cow for 25 000 000']) {
       const red = redact(said, []);
-      expect(Object.keys(red.map).filter((k) => k.startsWith('[PHONE_'))).toEqual([]);
+      expect(red.text).toMatch(/\[PHONE_1\]/);
       expect(isClean(red.text, red.map)).toBe(true);
     }
-    // An eight-digit phone with no money near it still goes, even grouped like an amount.
+    // An eight-digit phone goes however it is grouped.
     expect(redact('Call 71 234 567', []).map['[PHONE_1]']).toBe('71 234 567');
     expect(redact('Pay Awa 70 12 34 56 tomorrow', []).map['[PHONE_1]']).toBe('70 12 34 56');
     expect(redact('Call 70123456 for the bread', []).map['[PHONE_1]']).toBe('70123456');
@@ -343,7 +341,7 @@ describe('round 16 (EBE-11626)', () => {
     expect(redactAlso('The quantity 771234567 is not in the words.', red)).toBe('The quantity [PHONE_1] is not in the words.');
   });
 
-  it('takes out a phone typed after an amount beside money, and one before the next amount (round 17)', () => {
+  it('takes out every phone typed beside an amount, a currency, another phone or a date-like shape (rounds 17 and 18)', () => {
     for (const [said, phone] of [
       ['Sent KSh 1000 0712345678', '0712345678'],
       ['$ 1200 0771234567', '0771234567'],
@@ -356,14 +354,27 @@ describe('round 16 (EBE-11626)', () => {
       ['Airtime to 771234567 USD 5', '771234567'],
       ['Mpesa 254 712 345 678 KES 200', '254 712 345 678'],
       ['Call 263 77 123 4567 bob', '263 77 123 4567'],
+      ['Ravi 9876543210 9123456780 paid Rs 200', '9876543210'],
+      ['Ravi 9876543210 9123456780 paid Rs 200', '9123456780'],
+      ['Tendai 0771234567 0772345678 owes $5', '0771234567'],
+      ['credit Awa 5000F 70123456', '70123456'],
+      ['vendu riz 5000 CFA 70123456', '70123456'],
+      ['Paid R50 821234567', '821234567'],
+      ['Rs 9876543210', '9876543210'],
+      ['KES 712345678', '712345678'],
+      ['Sold 2 bread 771234567 dollars', '771234567'],
+      ['Awa doit 70123456 F.', '70123456'],
+      ['USD 771 234 567', '771 234 567'],
+      ['Moussa 7012-34-56 doit 2000F', '7012-34-56'],
+      ['numero 12.34-56.78', '12.34-56.78'],
+      ['07 07 12 34 56 doit 5000F', '07 07 12 34 56'],
     ]) {
       const red = redact(said, []);
-      expect(red.map['[PHONE_1]']).toBe(phone);
-      expect(red.text).not.toContain(phone);
-      expect(isClean(said, red.map)).toBe(false);
-      expect(isClean(red.text, red.map)).toBe(true);
+      expect(red.text, said).not.toContain(phone);
+      expect(Object.values(red.map).some((v) => v.includes(phone)), said).toBe(true);
+      expect(isClean(said, red.map), said).toBe(false);
+      expect(isClean(red.text, red.map), said).toBe(true);
     }
-    expect(redact('Sold a cow for UGX 1 500 000 000', []).text).toBe('Sold a cow for UGX 1 500 000 000');
   });
 
   it('keeps a short amount typed one space before a phone that opens with 0', () => {

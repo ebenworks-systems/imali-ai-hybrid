@@ -233,6 +233,20 @@ describe('reading words', () => {
     expect(done.reading.total).toBe(240);
   });
 
+  it("finishes a waiting entry with the shop's currency when it was read, not a later one (EBE-11626)", async () => {
+    const sodas = { kind: 'sale', items: [{ name: 'soda', quantity: 2, unit_price: 2500, line_total: 5000 }], total: 5000, person: '', due: '' };
+    deviceAnswer = { ...sodas, currency: 'shillings' };
+    online = false;
+    const waiting = await readWords('Sold 2 sodas for 5000 shillings each', { ...ctx, shopCurrency: 'TZS' });
+    expect(waiting.shopCurrency).toBe('TZS');
+    online = true;
+    cloudAnswer = { ...sodas, items: [{ name: 'soda', quantity: 2, unit_price: 5000, line_total: 10000 }], total: 10000, currency: 'TZS' };
+    const done = await finishWords({ ...waiting, hops: [...waiting.hops] }, { ...ctx, shopCurrency: 'ZAR' });
+    expect(calls.at(-1)?.prompt).toMatch(/shillings alone is TZS/);
+    expect(done.reading.currency).toBe('TZS');
+    expect(done.status).toBe('checked-in-cloud');
+  });
+
   it('sends a language Gemini Nano does not read straight to the cloud, names removed', async () => {
     cloudAnswer = {
       kind: 'debt',

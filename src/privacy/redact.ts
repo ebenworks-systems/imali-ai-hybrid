@@ -20,37 +20,27 @@ export interface Redacted {
 const PHONE = /(?:\+\d{1,4}[^\S\n]*\(0\)[^\S\n]*|\+?\(\d{1,4}\)[^\S\n]*|\+)?\d(?:(?:[^\S\n]+|[^\S\n]*\p{Pd}[^\S\n]*|[./])?\d){5,}/gu;
 const digitCount = (s: string) => s.replace(/\D/g, '').length;
 
-/** A date ("12/11/2026", "2026-11-12") or two joined by a dash ("12/11-15/11"). */
-const DAY = String.raw`(?:\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?|\d{1,2}-\d{1,2}-\d{2,4}|\d{4}[./-]\d{1,2}[./-]\d{1,2})`;
+/** A date ("12/11/2026", "2026-11-12", "12/11") or two joined by a dash ("12/11-15/11"), with a real day and month. */
+const D = String.raw`(?:0?[1-9]|[12]\d|3[01])`;
+const M = String.raw`(?:0?[1-9]|1[0-2])`;
+const Y = String.raw`(?:\d{2}|(?:19|20)\d{2})`;
+const DAY = String.raw`(?:${D}[./]${M}(?:[./]${Y})?|${D}-${M}-${Y}|(?:19|20)\d{2}[./-]${M}[./-]${D})`;
 const DATE = new RegExp(String.raw`^${DAY}(?:[^\S\n]*\p{Pd}[^\S\n]*${DAY})?$`, 'u');
 
 /** A price with cents ("12.50", "5,00"), which never starts or ends a phone written with spaces. */
 const PRICE = /^\d+[.,]\d{2}$/;
 
-/** Thousands grouped by a space or a dot ("25 000 000", "12.500.000"). */
-const THOUSANDS = /^[1-9]\d{0,2}(?:(?:[^\S\n]|\.)\d{3})+$/u;
-
-/** A money mark right before an amount ("UGX 25 000 000", "R 12 500 000") or a currency word right after it. */
-const CODES = 'USD|ZAR|KES|INR|XOF|XAF|ZWG|ZWL|NGN|GHS|EUR|GBP|TZS|UGX|RWF|MWK|ZMW|BWP|MZN|ETB|EGP|MAD';
-const MONEY_BEFORE = new RegExp(String.raw`(?:(?<![\p{L}])(?:${CODES}|K?Shs?|TShs?|UShs?|Rs\.?|R|F|FCFA|CFA)|[$€£₹₦₵])[^\S\n]*$`, 'u');
-// A currency after the run, not one that opens the next amount ("Sent to 254712345678 KES 500").
-const MONEY_AFTER = [
-  /^[^\S\n]*(?:shillings?|francs?|frs?|FCFA|CFA|rands?|dollars?|naira|cedis?|rupees?|euros?)(?![\p{L}])(?![^\S\n]*\d)/iu,
-  new RegExp(String.raw`^[^\S\n]*(?:${CODES}|F)(?![\p{L}\p{N}])(?![^\S\n]*\d)`, 'u'),
-];
-
 /**
- * The phone number inside one PHONE run, as [start, end] within the run, or null when the run holds none. Eight digits
+ * The phone number inside one PHONE run, as [start, end] within the run, or null when the run holds none: eight digits
  * or more (Burkina Faso, Mali, Niger, Togo and Botswana numbers have eight), once these are left out:
  * - a price with cents at either end ("Airtime 5.00 0771234567"), or a whole list of them ("12.50 25.00 37.50");
- * - an amount before a number that opens with its trunk 0 or holds eight digits on its own ("KSh 1000 0712345678",
- *   "$5 771234567"), unless the whole run is grouped in thousands ("1 500 000 000");
- * - a date or two ("12/11/2026", "2026-11-12", "12/11-15/11");
- * - with `around`, an amount: ten digits or fewer with no leading 0, + or bracket, written plain or in thousands, with a
- *   money mark right before it or a currency right after it ("UGX 25 000 000", "25000000 shillings"). With no money
- *   beside it, such a run is taken out: a phone that stays is worse than an amount that goes.
+ * - an amount of up to seven digits typed before a phone written in one piece that opens with its trunk 0
+ *   ("Sold 2 bread 30 0771234567", "KSh 1000 0712345678");
+ * - a date or two ("12/11/2026", "2026-11-12", "12/11-15/11").
+ * Any other run of eight digits or more goes, amounts too ("UGX 25 000 000"): a phone that leaves the device is worse
+ * than an amount that stays on it, which only means the cloud's reading cannot be checked.
  */
-function phoneIn(run: string, around?: { before: string; after: string }): [number, number] | null {
+function phoneIn(run: string): [number, number] | null {
   // The groups the run's spaces make, each with where it starts.
   const groups = [...run.matchAll(/\S+/g)].map((m) => ({ text: m[0], at: m.index ?? 0 }));
   let first = 0;
@@ -59,22 +49,9 @@ function phoneIn(run: string, around?: { before: string; after: string }): [numb
   while (first <= last && PRICE.test(groups[first].text)) first++;
   while (last >= first && PRICE.test(groups[last].text)) last--;
   if (first > last) return null;
-  if (
-    first < last &&
-    !THOUSANDS.test(body(first, last)) &&
-    /^\d+$/.test(groups[first].text) &&
-    (/^0/.test(groups[first + 1].text) || digitCount(groups[first + 1].text) >= 8) &&
-    digitCount(body(first + 1, last)) >= 8
-  ) {
-    first++;
-  }
+  if (first + 1 === last && /^[1-9]\d{0,6}$/.test(groups[first].text) && /^0\d{8,}$/.test(groups[last].text)) first++;
   const s = body(first, last);
   if (digitCount(s) < 8 || DATE.test(s)) return null;
-  if (around && /^[1-9]/.test(s) && digitCount(s) <= 10 && (/^\d+$/.test(s) || THOUSANDS.test(s))) {
-    const before = around.before + run.slice(0, groups[first].at);
-    const after = run.slice(groups[last].at + groups[last].text.length) + around.after;
-    if (MONEY_BEFORE.test(before) || MONEY_AFTER.some((re) => re.test(after))) return null;
-  }
   return [groups[first].at, groups[last].at + groups[last].text.length];
 }
 
@@ -83,7 +60,7 @@ function phonesIn(text: string): { phone: string; start: number; end: number }[]
   const out: { phone: string; start: number; end: number }[] = [];
   for (const m of text.matchAll(PHONE)) {
     const at = m.index ?? 0;
-    const hit = phoneIn(m[0], { before: text.slice(Math.max(0, at - 8), at), after: text.slice(at + m[0].length, at + m[0].length + 12) });
+    const hit = phoneIn(m[0]);
     if (hit) out.push({ phone: m[0].slice(hit[0], hit[1]), start: at + hit[0], end: at + hit[1] });
   }
   return out;

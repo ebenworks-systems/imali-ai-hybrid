@@ -51,6 +51,10 @@ const PRICE_MARK = new RegExp(`^(?:@\\s*)?(?:${CURRENCY}|R|Rs|KSh|Ksh|\\$|€|£
 
 const NUMBER_WORDS = Object.keys(WORDS).join('|');
 const ARTICLES = 'un|une|a|an';
+/** Verbs that open a clause other than the sale's. */
+const OTHER_VERBS =
+  'reçu|reçus|reçue|reçues|recu|livré|livrés|livrée|livrées|livre|acheté|achetés|achetée|achetées|payé|payés|payée|' +
+  'commandé|commandés|received|got|delivered|bought|ordered|paid';
 /** The number words that are never an article. */
 const COUNT_WORDS = Object.keys(WORDS)
   .filter((w) => !ARTICLES.split('|').includes(w))
@@ -92,8 +96,11 @@ function parForOne(after: string, before: string, prefix: string, rest: string):
     // count, so 12 is not).
     const lead = /^(?:pour|for)$/iu.test(prefix) ? `${before} ${prefix}` : before;
     // An article stops the span like any count ("Vendu un sac, reçu 2 cartons"), except after a word such as "à",
-    // where it is "a" or "one" of someone, not the count ("Vendu à une cliente, 2 sacs").
-    const stop = `(?:${COUNT_WORDS})(?![\\p{L}])|(?<!(?:^|[^\\p{L}])(?:à|au|aux|pour|to|for|de|avec)\\s+)(?:${ARTICLES})(?![\\p{L}])`;
+    // where it is "a" or "one" of someone, not the count ("Vendu à une cliente, 2 sacs"). Another verb starts another
+    // clause, so it stops the span too ("Vendu à une cliente, reçu 2 cartons pour 12 par carton").
+    const stop =
+      `(?:${COUNT_WORDS})(?![\\p{L}])|(?<!(?:^|[^\\p{L}])(?:à|au|aux|pour|to|for|de|avec)\\s+)(?:${ARTICLES})(?![\\p{L}])|` +
+      `(?:${OTHER_VERBS})(?![\\p{L}])`;
     const sale = new RegExp(
       `(?:^|[^\\p{L}])(?:vendu|vendus|vendue|vendues|vend|vends|sold|sell|sells)(?![\\p{L}])(?:(?!(?<![\\p{L}\\p{N}])(?:${stop}))[^.;\\d])*?(?<![\\p{L}\\p{N}])(?:\\d+(?:[ ,.]\\d{3})*|${NUMBER_WORDS})\\s+(?:de\\s+|d['’])?\\p{L}+\\s+(?:pour|for)\\s*$`,
       'iu',
