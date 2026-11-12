@@ -27,13 +27,33 @@ describe('numbers', () => {
     expect(amountsIn('R1 500 each')[0]).toMatchObject({ value: 1500, each: true });
   });
 
-  it('does not join a count to a size stuck to its unit', () => {
+  it('does not join a count to a size in a measure', () => {
     expect(amountsIn('Sold 3 750ml cooking oil at R45 each').map((x) => x.value)).toEqual([3, 750, 45]);
     expect(amountsIn('2 500ml bottles').map((x) => x.value)).toEqual([2, 500]);
+    expect(amountsIn('3 750 ml of oil').map((x) => x.value)).toEqual([3, 750]);
+  });
+
+  it('keeps a spaced thousand together when a currency is stuck to it', () => {
+    expect(amountsIn('Paid 5 000F for rent')[0].value).toBe(5000);
+    expect(amountsIn('Paid 1 500Ksh for transport')[0].value).toBe(1500);
+    expect(amountsIn('Vendu 2 sacs à 2 500FCFA chacun').map((x) => [x.value, x.each])).toEqual([
+      [2, false],
+      [2500, true],
+    ]);
   });
 
   it("reads the French \"l'unité\" as a price for one", () => {
     expect(mentionsEach("Vendu 2 sacs de riz à 5000 FCFA l'unité")).toBe(true);
+    expect(amountsIn("Vendu 2 sacs de riz à 5000 FCFA l'unité").find((x) => x.value === 5000)?.each).toBe(true);
+    expect(amountsIn('Vendu 2 sacs de riz à 5000 FCFA la pièce').find((x) => x.value === 5000)?.each).toBe(true);
+  });
+
+  it("catches a French price for one read as the line's total", () => {
+    const words = "Vendu 2 sacs de riz à 5000 FCFA l'unité";
+    const wrong = r({ items: [{ name: 'riz', quantity: 2, unit_price: 2500, line_total: 5000 }], total: 5000, currency: 'XOF' });
+    expect(checkWords(wrong, words).ok).toBe(false);
+    const right = r({ items: [{ name: 'riz', quantity: 2, unit_price: 5000, line_total: 10000 }], total: 10000, currency: 'XOF' });
+    expect(checkWords(right, words).ok).toBe(true);
   });
 
   it('finds the currency the words name', () => {

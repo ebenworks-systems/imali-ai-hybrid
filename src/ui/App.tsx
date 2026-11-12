@@ -329,10 +329,9 @@ export function App() {
       return;
     }
     if (retrying.current || cloudBlocked(c)) return;
-    const waiting = (await allEntries()).filter((e) => e.status === 'waiting' && e.source === 'words').reverse();
-    if (!waiting.length) return;
     retrying.current = true;
     try {
+      const waiting = (await allEntries()).filter((e) => e.status === 'waiting' && e.source === 'words').reverse();
       for (const [i, e] of waiting.entries()) {
         setBusy(`Checking ${i + 1} of ${waiting.length} entries that waited`);
         const done = await finishWords({ ...e, hops: [...e.hops] }, { ...c, onStep: undefined });

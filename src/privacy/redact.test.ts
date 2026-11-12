@@ -42,6 +42,12 @@ describe('redact', () => {
     expect(isClean('Sold 2 Cokes to Tom', tom.map)).toBe(false);
   });
 
+  it('takes out a name with a digit stuck to it', () => {
+    const r = redact('Sold 2 Cokes to Thandi2', ['Thandi']);
+    expect(r.text).toBe('Sold 2 Cokes to [PERSON_1]2');
+    expect(isClean('Sold 2 Cokes to Thandi2', r.map)).toBe(false);
+  });
+
   it('takes out a French name that opens the sentence', () => {
     expect(redact('Awa a payé 2000 FCFA').text).toBe('[PERSON_1] a payé 2000 FCFA');
   });

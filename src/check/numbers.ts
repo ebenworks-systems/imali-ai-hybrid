@@ -9,7 +9,7 @@ const WORDS: Record<string, number> = {
 };
 
 /** Words that make the amount next to them a price for one unit. */
-const EACH = /(?<![\p{L}\p{N}_])(each|per|apiece|a piece|chacun|chacune|l'unité|la pièce|kila mmoja|kila moja)(?![\p{L}\p{N}_])/iu;
+const EACH = /(?<![\p{L}\p{N}_])(each|per|apiece|a piece|chacun|chacune|l['’]unité|la pièce|kila mmoja|kila moja)(?![\p{L}\p{N}_])/iu;
 
 export interface Amount {
   value: number;
@@ -19,9 +19,10 @@ export interface Amount {
   index: number;
 }
 
-// A comma or a space groups thousands ("1 200 shillings"), but not when a unit is stuck to the last group: "3 750ml"
-// is 3 bottles of 750 ml.
-const NUMBER = /(?:@\s*)?(?:[A-Za-z₹$€£]{0,4}\s?)?(\d{1,3}(?:(?:,| (?=\d{3}(?![A-Za-zà-ÿ])))\d{3})+|\d+)(?:[.,](\d{1,2}))?(\s?k\b)?/g;
+// A comma or a space groups thousands ("1 200 shillings", "5 000F"), but a space does not when a measure follows the
+// last group: "3 750ml" and "3 750 ml" are 3 bottles of 750 ml.
+const NUMBER =
+  /(?:@\s*)?(?:[A-Za-z₹$€£]{0,4}\s?)?(\d{1,3}(?:(?:,| (?=\d{3}(?!\s?(?:ml|cl|l|kg|g|mg)(?![A-Za-zà-ÿ]))))\d{3})+|\d+)(?:[.,](\d{1,2}))?(\s?k\b)?/g;
 
 function toNumber(whole: string, cents: string | undefined, k: string | undefined): number {
   const n = Number(whole.replace(/[ ,]/g, '')) + (cents ? Number(cents.padEnd(2, '0')) / 100 : 0);
@@ -38,7 +39,7 @@ export function amountsIn(text: string): Amount[] {
     const before = text.slice(Math.max(0, index - 3), index);
     const each =
       m[0].trimStart().startsWith('@') ||
-      /^\s*(?:(?:dollars?|rands?|shillings?|rupees?|francs?|euros?|naira|cedis?|bob|[A-Z]{3}|CFA|FCFA|USD|ZiG)\s*)?(?:each|per|apiece|a piece|chacun|chacune|kila mmoja|kila moja)\b/i.test(after) ||
+      /^\s*(?:(?:dollars?|rands?|shillings?|rupees?|francs?|euros?|naira|cedis?|bob|[A-Z]{3}|CFA|FCFA|USD|ZiG)\s*)?(?:each|per|apiece|a piece|chacun|chacune|l['’]unité|la pièce|kila mmoja|kila moja)(?![\p{L}\p{N}_])/iu.test(after) ||
       /@\s*$/.test(before);
     out.push({ value, each, index });
   }

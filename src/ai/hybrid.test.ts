@@ -157,6 +157,32 @@ describe('reading words', () => {
     expect(e.reading.person).toBe('Thandi');
   });
 
+  it('does not take a capitalised item name in a problem line for a person', async () => {
+    deviceAnswer = {
+      kind: 'debt',
+      items: [{ name: 'Loaves', quantity: 0, unit_price: 15, line_total: 0 }],
+      total: 0,
+      currency: 'ZAR',
+      person: 'Thandi',
+      due: 'Friday',
+    };
+    cloudAnswer = {
+      kind: 'debt',
+      items: [{ name: 'loaves', quantity: 3, unit_price: 15, line_total: 45 }],
+      total: 45,
+      currency: 'ZAR',
+      person: '[PERSON_1]',
+      due: 'Friday',
+    };
+    const e = await readWords('Sold 3 loaves at R15 each to Thandi, she pays Friday', ctx);
+    const sent = calls[1].prompt;
+    expect(sent).toContain('Sold 3 loaves at R15 each to [PERSON_1], she pays Friday');
+    expect(sent).toContain('"Loaves" has a quantity of 0');
+    expect(sent).not.toContain('[PERSON_2]');
+    expect(e.hops[1].sent).toBe('the words, with 1 name removed');
+    expect(e.status).toBe('checked-in-cloud');
+  });
+
   it('keeps a failed reading on the device while offline, then checks it when the connection is back', async () => {
     deviceAnswer = maize(60);
     online = false;

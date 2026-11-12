@@ -24,11 +24,12 @@ const NOT_NAMES = new Set(
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
- * A pattern that finds `text` only as a whole word, with accented letters counted as letters. "Tom" is not found in
- * "tomorrow", nor "Juma" in "Ijumaa" (Kiswahili for Friday), and "Aimé" is found before a comma.
+ * A pattern that finds `text` with no letter touching it on either side, accented letters counted as letters. "Tom"
+ * is not found in "tomorrow", nor "Juma" in "Ijumaa" (Kiswahili for Friday); "Aimé" is found before a comma, and
+ * "Thandi" in "Thandi2", since a digit is not part of a name.
  */
 export function wholeWord(text: string, flags = 'iu'): RegExp {
-  return new RegExp(`(?<![\\p{L}\\p{N}_])${escape(text)}(?![\\p{L}\\p{N}_])`, flags);
+  return new RegExp(`(?<!\\p{L})${escape(text)}(?!\\p{L})`, flags);
 }
 
 /**
@@ -68,6 +69,24 @@ export function redact(text: string, known: string[] = []): Redacted {
     return key;
   });
   return { text: out, map };
+}
+
+/**
+ * Take out of text the device wrote (its problem lines) the names already removed from the owner's words, and any
+ * known customer, with the same placeholders. New placeholders are added to `red.map`. The capitalised-word rule is
+ * not used here: the device writes item names with capitals ("Loaves"), and those are not people.
+ */
+export function redactAlso(text: string, red: Redacted, known: string[] = []): string {
+  let out = text;
+  const byLength = Object.entries(red.map).sort(([, a], [, b]) => b.length - a.length);
+  for (const [key, value] of byLength) out = out.replace(wholeWord(value, 'giu'), key);
+  for (const name of [...known].filter(Boolean).sort((a, b) => b.length - a.length)) {
+    if (!wholeWord(name).test(out)) continue;
+    const key = `[PERSON_${Object.keys(red.map).filter((k) => k.startsWith('[PERSON_')).length + 1}]`;
+    red.map[key] = name;
+    out = out.replace(wholeWord(name, 'giu'), key);
+  }
+  return out;
 }
 
 /** Put the real names back into anything the cloud returned. */
