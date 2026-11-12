@@ -14,6 +14,13 @@ const calls: Call[] = [];
 const downModels = new Set<string>();
 // Cloud models that answer, slowly, with text that is not the JSON asked for.
 const garbageModels = new Set<string>();
+// How long a model that is down takes to fail, added to the clock the code reads (a timeout of 60 s, say).
+let downMs = 0;
+let skippedMs = 0;
+const realNow = performance.now.bind(performance);
+vi.spyOn(performance, 'now').mockImplementation(() => realNow() + skippedMs);
+// Whether Gemini Nano reads photos on this device.
+let nanoPhotos = true;
 // What each engine answers next: a reading or a query, as the model would return it.
 let deviceAnswer: Record<string, unknown> = {};
 let cloudAnswer: Record<string, unknown> = {};
@@ -36,9 +43,10 @@ vi.mock('firebase/ai', () => ({
       const prompt = parts.map((p) => p.text ?? '').join('\n');
       const model = params.inCloudParams?.model;
       calls.push({ mode: params.mode, prompt, model, timeout: requestOptions?.timeout });
-      const onDevice = params.mode === 'only_on_device' || params.mode === 'prefer_on_device';
+      const onDevice = params.mode === 'only_on_device' || (params.mode === 'prefer_on_device' && nanoPhotos);
       if (!onDevice && model && downModels.has(model)) {
         await new Promise((r) => setTimeout(r, 30));
+        skippedMs += downMs;
         throw new Error(`[503 ] Deadline expired (${model})`);
       }
       if (!onDevice && model && garbageModels.has(model)) return { response: { inferenceSource: 'in_cloud', text: () => 'Sorry, I cannot help.' } };
@@ -48,7 +56,7 @@ vi.mock('firebase/ai', () => ({
   }),
 }));
 
-const { currencyCode, finishWords, readWords, readQuestion, PHOTO_TIMEOUT_MS } = await import('./hybrid');
+const { cloudCallsToday, currencyCode, finishWords, readReceipt, readWords, readQuestion, PHOTO_TIMEOUT_MS } = await import('./hybrid');
 
 const store = new Map<string, string>();
 vi.stubGlobal('localStorage', {
@@ -63,10 +71,16 @@ vi.stubGlobal('navigator', {
 });
 // Gemini Nano reads English and French here, as Chrome 157 did in our tests; Kiswahili it does not.
 vi.stubGlobal('LanguageModel', {
-  availability: async (o?: { expectedInputs?: { languages?: string[] }[] }) => {
+  availability: async (o?: { expectedInputs?: { type?: string; languages?: string[] }[] }) => {
+    if (!nanoPhotos && o?.expectedInputs?.some((i) => i.type === 'image')) return 'unavailable';
     const langs = o?.expectedInputs?.flatMap((i) => i.languages ?? []) ?? ['en'];
     return langs.every((l) => l === 'en' || l === 'fr') ? 'available' : 'unavailable';
   },
+});
+// A photo turned into a JPEG needs a canvas, which the tests do not have.
+vi.stubGlobal('createImageBitmap', async () => ({ width: 10, height: 10 }));
+vi.stubGlobal('document', {
+  createElement: () => ({ getContext: () => ({ drawImage: () => undefined }), toDataURL: () => 'data:image/jpeg;base64,AAAA' }),
 });
 vi.stubGlobal('LanguageDetector', {
   availability: async () => 'available',
@@ -96,6 +110,8 @@ beforeEach(() => {
   garbageModels.clear();
   store.clear();
   online = true;
+  downMs = 0;
+  nanoPhotos = true;
 });
 
 describe('reading words', () => {
@@ -277,17 +293,47 @@ describe('reading words', () => {
     expect(e.problems.join(' ')).toMatch(/PERSON_3/);
   });
 
-  it('keeps the entry waiting when neither cloud model answers, and counts no cloud call', async () => {
+  it('keeps the entry waiting when neither cloud model answers, and counts both calls against the daily cap', async () => {
     deviceAnswer = maize(60);
     downModels.add('second-model').add('cloud-model');
     const e = await readWords('Sold two bags of maize meal for 120 rand each', ctx);
     expect(e.status).toBe('waiting');
     expect(e.problems.join(' ')).toMatch(/could not be reached/);
     expect(calls.filter((c) => c.mode === 'only_in_cloud')).toHaveLength(2);
-    expect(store.size).toBe(0);
+    // A call that fails has still used the free quota, so the cap stops the loop over waiting entries.
+    expect(cloudCallsToday()).toBe(2);
   });
 
-  it('asks the second-opinion model when the cloud model does not answer a plain cloud read, each with a 60-second limit', async () => {
+  it('gives the fallback only what is left of 90 seconds, and never less than 30', async () => {
+    deviceAnswer = maize(60);
+    cloudAnswer = maize(120);
+    downModels.add('second-model');
+    await readWords('Sold two bags of maize meal for 120 rand each', ctx);
+    expect(calls[1].timeout).toBe(60_000);
+    expect(calls[2].timeout).toBeLessThanOrEqual(90_000 - 25);
+    expect(calls[2].timeout).toBeGreaterThan(80_000);
+    calls.length = 0;
+    downMs = 60_000;
+    await readWords('Sold two bags of maize meal for 120 rand each', ctx);
+    expect(calls[2].model).toBe('cloud-model');
+    expect(calls[2].timeout).toBe(30_000);
+  });
+
+  it('keeps a phone number the owner wrote after the word "phone" and checks the entry', async () => {
+    cloudAnswer = {
+      kind: 'sale',
+      items: [{ name: 'airtime for phone [PHONE_1]', quantity: 1, unit_price: 20, line_total: 20 }],
+      total: 20,
+      currency: 'ZAR',
+      person: '',
+      due: '',
+    };
+    const e = await readWords('Nimemuuzia airtime ya R20 kwa phone 0772123456', { ...ctx, knownNames: [] });
+    expect(e.reading.items[0].name).toBe('airtime for phone 0772123456');
+    expect(e.problems.join(' ')).not.toMatch(/still holds/);
+  });
+
+  it('asks the second-opinion model when the cloud model does not answer a plain cloud read, the first with a 60-second limit', async () => {
     downModels.add('cloud-model');
     cloudAnswer = {
       kind: 'debt',
@@ -301,7 +347,8 @@ describe('reading words', () => {
     expect(calls.map((c) => `${c.mode}:${c.model}`)).toEqual(['only_in_cloud:cloud-model', 'only_in_cloud:second-model']);
     expect(e.status).toBe('checked');
     expect(e.hops[0].reason).toMatch(/cloud-model did not answer, so second-model was asked/);
-    expect(calls.every((c) => c.timeout === 60_000)).toBe(true);
+    expect(calls[0].timeout).toBe(60_000);
+    expect(calls[1].timeout).toBeLessThanOrEqual(90_000);
     expect(PHOTO_TIMEOUT_MS).toBe(120_000);
   });
 
@@ -334,6 +381,15 @@ describe('reading words', () => {
     expect(currencyCode('Kshs', 'ZAR')).toBe('KES');
     expect(currencyCode('TSh', 'ZAR')).toBe('TZS');
     expect(currencyCode('USh', 'ZAR')).toBe('UGX');
+    expect(currencyCode('TSH', 'ZAR')).toBe('TZS');
+    expect(currencyCode('TShs', 'ZAR')).toBe('TZS');
+    expect(currencyCode('USH', 'ZAR')).toBe('UGX');
+    expect(currencyCode('UShs', 'ZAR')).toBe('UGX');
+    // A qualified name is not read as the plain one: it is left to fail the currency check.
+    expect(currencyCode('Tanzanian shillings', 'ZAR')).not.toBe('KES');
+    expect(currencyCode('Ugandan shillings', 'ZAR')).not.toBe('KES');
+    expect(currencyCode('Australian dollars', 'ZAR')).not.toBe('USD');
+    expect(currencyCode('Namibian dollars', 'ZAR')).not.toBe('USD');
     expect(currencyCode(null, 'ZAR')).toBe('ZAR');
     deviceAnswer = {
       kind: 'debt',
@@ -362,6 +418,28 @@ describe('reading words', () => {
     const e = await readWords('Sold two bags of maize meal for 120 rand each', capped);
     expect(e.status).toBe('waiting');
     expect(calls.map((c) => c.mode)).toEqual(['only_on_device']);
+  });
+});
+
+describe('receipts', () => {
+  const receipt = {
+    kind: 'purchase',
+    items: [{ name: 'flour', quantity: 2, unit_price: 100, line_total: 200 }],
+    total: 200,
+    currency: 'ZAR',
+    person: '',
+    due: '',
+  };
+
+  it('asks the other cloud model when a device without Gemini Nano gets nothing from the cloud model', async () => {
+    nanoPhotos = false;
+    downModels.add('cloud-model');
+    cloudAnswer = receipt;
+    const e = await readReceipt(new Blob(['x']), ctx);
+    expect(calls.map((c) => `${c.mode}:${c.model}`)).toEqual(['prefer_on_device:cloud-model', 'only_in_cloud:second-model']);
+    expect(e.status).toBe('checked');
+    expect(e.hops.at(-1)?.reason).toMatch(/cloud-model could not read the photo/);
+    expect(cloudCallsToday()).toBe(2);
   });
 });
 

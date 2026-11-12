@@ -6,8 +6,7 @@ import { getGenerativeModel, InferenceMode, type Part } from 'firebase/ai';
 import { ai, cloudConfigured, type Settings } from './firebase';
 import { askPrompt, QUERY_SCHEMA, READING_SCHEMA, readPrompt, receiptPrompt, receiptSecondOpinionPrompt, secondOpinionPrompt } from './prompts';
 import { checkReceipt, checkWords, type CheckResult } from '../check/checks';
-import { currencyIn } from '../check/numbers';
-import { isClean, placeholderIn, redact, redactAlso, restore } from '../privacy/redact';
+import { isClean, placeholderLeft, redact, redactAlso, restore } from '../privacy/redact';
 import type { Entry, Hop, Query, Reading, Where } from '../book/types';
 import { INTENTS, KINDS, PERIODS } from '../book/types';
 
@@ -145,9 +144,13 @@ interface CallResult<T> {
 /**
  * How long one cloud call may take until its answer starts: 60 seconds for words, 120 for a photo, which also has to
  * upload. The SDK's own default is 180 seconds, too long for an owner at the counter waiting on a model that is down.
+ * A fallback call gets what is left of 90 seconds for words (180 for a photo), and never less than 30 (60), so the two
+ * calls together never take longer than that.
  */
 export const CLOUD_TIMEOUT_MS = 60_000;
 export const PHOTO_TIMEOUT_MS = 120_000;
+export const CLOUD_BUDGET_MS = 90_000;
+export const PHOTO_BUDGET_MS = 180_000;
 
 function parseJson(text: string): unknown {
   const t = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '');
@@ -156,7 +159,16 @@ function parseJson(text: string): unknown {
 
 async function call<T>(
   parts: Part[],
-  opts: { mode: InferenceMode; language: string; image?: boolean; cloudModel: string; schema: Record<string, unknown> },
+  opts: {
+    mode: InferenceMode;
+    language: string;
+    image?: boolean;
+    cloudModel: string;
+    schema: Record<string, unknown>;
+    timeout?: number;
+    /** For PREFER_ON_DEVICE: this device has no Gemini Nano for the input, so the call will go to the cloud. */
+    cloudLikely?: boolean;
+  },
 ): Promise<CallResult<T>> {
   const expectedInputs: { type: 'text' | 'image'; languages?: string[] }[] = [{ type: 'text', languages: [opts.language] }];
   if (opts.image) expectedInputs.push({ type: 'image' });
@@ -173,13 +185,17 @@ async function call<T>(
         generationConfig: { responseMimeType: 'application/json', responseJsonSchema: opts.schema, temperature: 0 },
       },
     },
-    { timeout: opts.image ? PHOTO_TIMEOUT_MS : CLOUD_TIMEOUT_MS },
+    { timeout: opts.timeout ?? (opts.image ? PHOTO_TIMEOUT_MS : CLOUD_TIMEOUT_MS) },
   );
+  // A cloud call is counted before it is made: one that times out or fails has still used the day's free quota, and
+  // counting only answers would let the loop over waiting entries ask a model that is down without end.
+  const counted = opts.mode === InferenceMode.ONLY_IN_CLOUD || opts.cloudLikely === true;
+  if (counted) countCloudCall();
   const t0 = performance.now();
   const result = await model.generateContent(parts);
   const ms = Math.round(performance.now() - t0);
   const where: Where = result.response.inferenceSource === 'on_device' ? 'device' : 'cloud';
-  if (where === 'cloud') countCloudCall();
+  if (where === 'cloud' && !counted) countCloudCall();
   return { value: parseJson(result.response.text()) as T, where, model: where === 'device' ? DEVICE_MODEL : opts.cloudModel, ms };
 }
 
@@ -195,14 +211,17 @@ async function cloudCall<T>(
   opts: { language: string; image?: boolean; cloudModel: string; fallbackModel?: string; schema: Record<string, unknown> },
 ): Promise<CallResult<T>> {
   const { fallbackModel, ...rest } = opts;
-  const once = (cloudModel: string) => call<T>(parts, { ...rest, mode: InferenceMode.ONLY_IN_CLOUD, cloudModel });
+  const once = (cloudModel: string, timeout?: number) =>
+    call<T>(parts, { ...rest, mode: InferenceMode.ONLY_IN_CLOUD, cloudModel, timeout });
   const t0 = performance.now();
   try {
     return await once(opts.cloudModel);
   } catch (e) {
     // The fallback is a second cloud call, so it needs what the first one needed: a connection and today's cap.
     if (!fallbackModel || fallbackModel === opts.cloudModel || cloudBlocked(ctx)) throw e;
-    const r = await once(fallbackModel);
+    const budget = opts.image ? PHOTO_BUDGET_MS : CLOUD_BUDGET_MS;
+    const first = opts.image ? PHOTO_TIMEOUT_MS : CLOUD_TIMEOUT_MS;
+    const r = await once(fallbackModel, Math.round(Math.max(budget - first, budget - (performance.now() - t0))));
     // The owner waited for both calls, so the step shows both.
     return { ...r, missed: opts.cloudModel, ms: Math.round(performance.now() - t0) };
   }
@@ -220,19 +239,31 @@ function num(v: unknown): number {
 }
 
 /**
- * The model's currency as a three-letter code. Gemini Nano wrote "CFA" for "5000 FCFA chacun" on 12 Nov 2026, which
- * the currency check then failed against the XOF the words name. A name or symbol is read with the words' own table
- * ("CFA", "FCFA" and "F CFA" are XOF, "KSh" is KES), and a bare symbol as it would read before an amount ("R" is ZAR,
- * "Rs" INR, "$" USD).
+ * What a model may write for a currency instead of its code, each as the whole value. Gemini Nano wrote "CFA" for
+ * "5000 FCFA chacun" on 12 Nov 2026, which the currency check then failed against the XOF the words name. Only these
+ * exact forms are read: "Tanzanian shillings" must not become KES, nor "Z$" or "Australian dollars" US dollars.
  */
+const CURRENCY_FORMS: [RegExp, string][] = [
+  [/^(?:F\s?CFA|CFA)$/i, 'XOF'],
+  [/^K\.?\s?Shs?\.?$/i, 'KES'],
+  [/^T\.?\s?Shs?\.?$/i, 'TZS'],
+  [/^U\.?\s?Shs?\.?$/i, 'UGX'],
+  [/^ZiG$/i, 'ZWG'],
+  [/^(?:R|rands?)$/i, 'ZAR'],
+  [/^(?:Rs\.?|₹|rupees?)$/i, 'INR'],
+  [/^(?:\$|US\$)$/i, 'USD'],
+  [/^(?:€|euros?)$/i, 'EUR'],
+  [/^(?:₦|naira)$/i, 'NGN'],
+  [/^(?:₵|cedis?)$/i, 'GHS'],
+];
+
+/** The model's currency as a three-letter code; anything else is left to fail the currency check. */
 export function currencyCode(v: string | null, shopCurrency: string): string {
   if (!v) return shopCurrency;
-  const named = currencyIn(v);
-  if (named) return named;
-  if (/^[A-Za-z]{3}$/.test(v)) return v.toUpperCase();
-  // Only a bare symbol is read as it would be before an amount: "Z$", "A$" or "R$" must not turn into US dollars.
-  if (/^(?:R|Rs\.?|\$|US\$|₹|€)$/i.test(v)) return currencyIn(`${v} 1`) ?? v;
-  return v.toUpperCase().slice(0, 3);
+  const t = v.trim();
+  for (const [re, code] of CURRENCY_FORMS) if (re.test(t)) return code;
+  if (/^[A-Za-z]{3}$/.test(t)) return t.toUpperCase();
+  return t.toUpperCase().slice(0, 3);
 }
 
 export function tidyReading(raw: unknown, shopCurrency: string): Reading {
@@ -297,11 +328,12 @@ async function cloudRead(
     fallbackModel: problems ? ctx.settings.cloudModel : ctx.settings.secondOpinionModel,
     schema: READING_SCHEMA,
   });
-  const reading = restore(tidyReading(r.value, ctx.shopCurrency), red.map);
+  const tidied = tidyReading(r.value, ctx.shopCurrency);
+  const reading = restore(tidied, red.map);
   const n = Object.keys(red.map).length;
   const sent = `the words, with ${n === 0 ? 'no names to remove' : n === 1 ? '1 name removed' : `${n} names removed`}`;
   const check = checkWords(reading, words);
-  const left = placeholderIn(reading);
+  const left = placeholderLeft(tidied, red.map);
   if (left) {
     check.ok = false;
     check.problems.push(`The cloud's answer still holds "${left}" where a name was taken out, so the name is not known.`);
@@ -421,7 +453,8 @@ export async function readReceipt(file: Blob, ctx: Context): Promise<Entry> {
   // the cloud model when it does not (or while offline, an error the owner sees).
   let first: { reading: Reading; check: CheckResult; where: Where } | null = null;
   const canCloud = cloudBlocked(ctx) === null;
-  if ((await deviceReads('en', true)) || canCloud) {
+  const deviceFirst = await deviceReads('en', true);
+  if (deviceFirst || canCloud) {
     try {
       ctx.onStep?.('Reading the receipt photo');
       const r = await call<unknown>([{ type: 'text', text: receiptPrompt(ctx.shopCurrency) }, image], {
@@ -430,6 +463,7 @@ export async function readReceipt(file: Blob, ctx: Context): Promise<Entry> {
         image: true,
         cloudModel: ctx.settings.cloudModel,
         schema: READING_SCHEMA,
+        cloudLikely: !deviceFirst,
       });
       const reading = tidyReading(r.value, ctx.shopCurrency);
       first = { reading, check: checkReceipt(reading), where: r.where };
@@ -453,7 +487,13 @@ export async function readReceipt(file: Blob, ctx: Context): Promise<Entry> {
     entry.status = 'checked';
     return entry;
   }
-  const why = first ? `the lines on the device's reading did not add up` : `${DEVICE_MODEL} could not read the photo here`;
+  // With no Gemini Nano for photos, the first pass already asked the cloud model, so the next try goes to the other one.
+  const cloudTried = !first && !deviceFirst;
+  const why = first
+    ? `the lines on the device's reading did not add up`
+    : cloudTried
+      ? `${ctx.settings.cloudModel} could not read the photo`
+      : `${DEVICE_MODEL} could not read the photo here`;
   const blocked = cloudBlocked(ctx);
   if (blocked) {
     if (first) entry.reading = first.reading;
@@ -462,13 +502,13 @@ export async function readReceipt(file: Blob, ctx: Context): Promise<Entry> {
     return entry;
   }
   try {
-    ctx.onStep?.('The lines did not add up: asking the cloud to read the photo again');
+    ctx.onStep?.(first ? 'The lines did not add up: asking the cloud to read the photo again' : 'Asking the cloud to read the photo');
     const prompt = first ? receiptSecondOpinionPrompt(ctx.shopCurrency, first.check.problems) : receiptPrompt(ctx.shopCurrency);
     const r = await cloudCall<unknown>([{ type: 'text', text: prompt }, image], ctx, {
       language: 'en',
       image: true,
-      cloudModel: first ? ctx.settings.secondOpinionModel : ctx.settings.cloudModel,
-      fallbackModel: first ? ctx.settings.cloudModel : undefined,
+      cloudModel: first || cloudTried ? ctx.settings.secondOpinionModel : ctx.settings.cloudModel,
+      fallbackModel: first ? ctx.settings.cloudModel : cloudTried ? undefined : ctx.settings.secondOpinionModel,
       schema: READING_SCHEMA,
     });
     const reading = tidyReading(r.value, ctx.shopCurrency);
@@ -521,9 +561,10 @@ export async function readQuestion(question: string, ctx: Context): Promise<{ qu
     schema: QUERY_SCHEMA,
   });
   const n = Object.keys(red.map).length;
-  const query = restore(tidyQuery(r.value), red.map);
-  const left = placeholderIn(query);
+  const tidied = tidyQuery(r.value);
+  const left = placeholderLeft(tidied, red.map);
   if (left) throw new Error(`The cloud's answer still holds "${left}" where a name was taken out; ask again with the name.`);
+  const query = restore(tidied, red.map);
   return {
     query,
     hops: [hop('ask', r, because(why, r), `the question only, ${n} name${n === 1 ? '' : 's'} removed; no records`)],

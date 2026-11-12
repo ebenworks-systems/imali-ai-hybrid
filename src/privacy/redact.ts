@@ -148,16 +148,27 @@ export function redactAlso(text: string, red: Redacted, known: string[] = []): s
   return out;
 }
 
+/**
+ * The forms of one placeholder a cloud model writes without its brackets ("PERSON_1", "{PERSON_1}", "Person 1"). The
+ * digit must end there, so PERSON_1 never takes PERSON_10. "Person 1" is how a model may rewrite a name's placeholder,
+ * so PERSON is matched in any case; "phone 1" is an ordinary phrase ("phone 1 charger"), so any other kind is matched
+ * only in capitals or with its underscore.
+ */
+function bareForms(kind: string, n: string): RegExp[] {
+  const edged = (body: string, flags: string) => new RegExp(`[[{<]?\\b${body}\\b[\\]}>]?`, flags);
+  return kind === 'PERSON' ? [edged(`${kind}[\\s_-]?${n}`, 'gi')] : [edged(`${kind}[\\s_-]?${n}`, 'g'), edged(`${kind}_${n}`, 'gi')];
+}
+
 /** Put the real names back into anything the cloud returned. */
 export function restore<T>(value: T, map: Record<string, string>): T {
   if (typeof value === 'string') {
     let s: string = value;
     for (const [k, v] of Object.entries(map)) {
       s = s.split(k).join(v);
-      // A cloud model sometimes drops the brackets or swaps them ("PERSON_1", "{PERSON_1}"), as gemini-3.5-flash-lite
-      // did for the Kiswahili example on 12 Nov 2026. The digit must end there, so PERSON_1 never takes PERSON_10.
+      // A cloud model sometimes drops the brackets or swaps them, as gemini-3.5-flash-lite did for the Kiswahili
+      // example on 12 Nov 2026 ("PERSON_1").
       const m = /^\[([A-Z]+)_(\d+)\]$/.exec(k);
-      if (m) s = s.replace(new RegExp(`[[{<]?\\b${m[1]}[\\s_-]?${m[2]}\\b[\\]}>]?`, 'gi'), () => v);
+      if (m) for (const re of bareForms(m[1], m[2])) s = s.replace(re, () => v);
     }
     return s as T;
   }
@@ -175,7 +186,9 @@ export function restore<T>(value: T, map: Record<string, string>): T {
  * "Person 1", "PERSON_1s"), or null. Such an answer names nobody the owner knows, so it must not count as checked.
  */
 export function placeholderIn(value: unknown): string | null {
-  if (typeof value === 'string') return /\b(?:PERSON|PHONE)[\s_-]?\d+/i.exec(value)?.[0] ?? null;
+  if (typeof value === 'string') {
+    return /\bPERSON[\s_-]?\d+/i.exec(value)?.[0] ?? /\bPHONE[\s_-]?\d+/.exec(value)?.[0] ?? /\bphone_\d+/i.exec(value)?.[0] ?? null;
+  }
   if (Array.isArray(value)) {
     for (const v of value) {
       const hit = placeholderIn(v);
@@ -185,6 +198,14 @@ export function placeholderIn(value: unknown): string | null {
   }
   if (value && typeof value === 'object') return placeholderIn(Object.values(value));
   return null;
+}
+
+/**
+ * A placeholder the cloud's answer still holds once every placeholder in the map is taken out, or null. It is read
+ * before the real values go back, so a phone number the owner wrote after the word "phone" is not taken for one.
+ */
+export function placeholderLeft(value: unknown, map: Record<string, string>): string | null {
+  return placeholderIn(restore(value, Object.fromEntries(Object.keys(map).map((k) => [k, '']))));
 }
 
 /**

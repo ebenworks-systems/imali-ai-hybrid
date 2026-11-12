@@ -147,8 +147,8 @@ export function mentionsEach(text: string): boolean {
 
 const MARKS: [RegExp, string][] = [
   // Case matters for TSh and USh, so "ush" or "tsh" in a sentence is not a currency.
-  [/\bT[Ss]h\b|\bTZS\b/, 'TZS'],
-  [/\bU[Ss]h\b|\bUGX\b/, 'UGX'],
+  [/\bT[Ss]hs?\b|\bTZS\b/, 'TZS'],
+  [/\bU[Ss]hs?\b|\bUGX\b/, 'UGX'],
   [/\bKshs?\b|\bKES\b|\bshillings?\b/i, 'KES'],
   [/₹|\bRs\.?\s?\d|\bINR\b|\brupees?\b/i, 'INR'],
   [/\bF\s?CFA\b|\bCFA\b|\bXOF\b/i, 'XOF'],

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isClean, placeholderIn, redact, redactAlso, restore } from './redact';
+import { isClean, placeholderIn, placeholderLeft, redact, redactAlso, restore } from './redact';
 
 describe('redact', () => {
   it('replaces a known customer and a name the book has not seen', () => {
@@ -166,6 +166,22 @@ describe('redact', () => {
     expect(placeholderIn({ items: [{ name: 'bread for PERSON_1s' }] })).toBe('PERSON_1');
     expect(placeholderIn(['ok', { due: 'Person 2' }])).toBe('Person 2');
     expect(placeholderIn({ person: 'Juma', items: [{ name: 'personal 1 kg soap' }] })).toBeNull();
+    expect(placeholderIn({ items: [{ name: 'phone 2 cases' }] })).toBeNull();
+    expect(placeholderIn({ items: [{ name: 'airtime for PHONE 2' }] })).toBe('PHONE 2');
+  });
+
+  it('leaves "phone 1" in plain words alone and takes a phone placeholder back only in capitals or with its underscore', () => {
+    const map = { '[PHONE_1]': '0772123456' };
+    expect(restore('phone 1 charger', map)).toBe('phone 1 charger');
+    expect(restore('PHONE_1 and PHONE 1 and phone_1', map)).toBe('0772123456 and 0772123456 and 0772123456');
+  });
+
+  it('looks for a leftover placeholder before the real values go back, so a number after "phone" is not one', () => {
+    const map = { '[PHONE_1]': '0772123456', '[PERSON_1]': 'Juma' };
+    const answer = { person: '[PERSON_1]', items: [{ name: 'airtime for phone [PHONE_1]' }] };
+    expect(placeholderLeft(answer, map)).toBeNull();
+    expect(placeholderLeft({ person: '[PERSON_3]' }, map)).toBe('PERSON_3');
+    expect(placeholderLeft({ person: 'PERSON_1s' }, map)).toBe('PERSON_1');
   });
 
   it('puts the names back in a nested answer', () => {
