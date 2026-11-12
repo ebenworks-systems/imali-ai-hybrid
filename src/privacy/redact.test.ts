@@ -459,3 +459,46 @@ describe('round 19 (EBE-11663)', () => {
     expect(redact('Pay 12.11.2026 0771234567', []).text).toBe('Pay 12.11.2026 [PHONE_1]');
   });
 });
+
+describe('round 19, second pass (EBE-11663)', () => {
+  it('takes out a phone written with direction marks between its groups', () => {
+    for (const said of ['tel 77‎123‎4567', 'tel ٢٦٣‏٧٧‏١٢٣‏٤٥٦٧']) {
+      expect(redact(said, []).text, said).toBe('tel [PHONE_1]');
+    }
+  });
+
+  it("keeps a phone's last pair written like a price with the phone, whatever opens it", () => {
+    for (const said of ['Call +263 77 123 45.67', 'Call 0033 6 12 34 56.78', 'Call +263 (0) 77 123 45.67']) {
+      expect(redact(said, []).text, said).toBe('Call [PHONE_1]');
+    }
+    expect(redact('Airtime 0771234567 5.00', []).text).toBe('Airtime [PHONE_1] 5.00');
+  });
+
+  it('does not join two amounts across a full stop, a spaced slash or a bullet', () => {
+    for (const said of ['Sold 5 sacks at 12500. 10000 paid.', 'Vendu 3 sacs à 15000. 45000 reçu.', 'Paid 5000 / 10000 for the cow']) {
+      expect(redact(said, []).text, said).toBe(said);
+    }
+    expect(redact('Prices: 1500 • 2000 • 3000', []).map).toEqual({});
+    expect(redact('12500 . 0771234567', []).map['[PHONE_1]']).toBe('0771234567');
+  });
+
+  it('lets comma prices and time ranges through the wider check', () => {
+    for (const said of [
+      'Prix 1,00 2,00 3,00 4,00',
+      'Sold 4 at 2,50, 3,00, 1,00, 4,00',
+      'Sold 5 at 0,50 0,75 1,25 2,50 5,00',
+      'Shop open 08:30-17:00, sold 3 bread',
+      'Sold 3 bread at 08:30:00-09:15:00',
+    ]) {
+      const red = redact(said, []);
+      expect(isClean(red.text, red.map, red.parts), said).toBe(true);
+    }
+  });
+
+  it('refuses digits joined by an underscore, a semicolon or a bar', () => {
+    for (const said of ['tel 263_77_123_4567', 'tel 77_123_4567', 'tel 263 ; 77 ; 123 4567', 'tel 263|77|123|4567']) {
+      const red = redact(said, []);
+      expect(isClean(red.text, red.map, red.parts), said).toBe(false);
+    }
+  });
+});

@@ -318,6 +318,12 @@ describe('round 19 sale span (EBE-11663)', () => {
       'Vendu à une cliente, payées 2 cartons pour 12 par carton',
       'Vendu à une cliente, pris 2 cartons pour 12 par carton',
       'Vendu à une cliente, arrivé 2 cartons pour 12 par carton',
+      'Vendu à une cliente, achète 2 cartons pour 12 par carton',
+      // A word or a mark between the verb and its count.
+      'Vendu à une cliente, reçu hier 2 cartons pour 12 par carton',
+      'Vendu à une cliente, reçu: 2 cartons pour 12 par carton',
+      'Vendu à une cliente, reçu de Awa 2 cartons pour 12 par carton',
+      'Vendu à une cliente, livré ce matin 2 cartons pour 12 par carton',
     ]) {
       expect(amountsIn(words).find((a) => a.value === 12)?.each, words).toBe(false);
     }
