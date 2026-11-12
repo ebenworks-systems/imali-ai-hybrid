@@ -87,6 +87,26 @@ describe('numbers', () => {
     expect(checkWords(pains, 'Chaque jour je vends 30 pains, 3000 F par jour').ok).toBe(true);
   });
 
+  it('reads a price for one after KSh, TSh, Sh and frs, and after "a", "at" or "pour" typed before the amount', () => {
+    const each = (s: string, v: number) => amountsIn(s).find((x) => x.value === v)?.each;
+    expect(each('Sold 3 loaves 300 KSh each', 300)).toBe(true);
+    expect(each('Niliuza mikate 3, 300 Ksh kila mmoja', 300)).toBe(true);
+    expect(each('Sold 2 sodas 1500 TSh each', 1500)).toBe(true);
+    expect(each('Sold 2 sodas 50 Sh each', 50)).toBe(true);
+    expect(each('Vendu 2 sacs 5000 frs chacun', 5000)).toBe(true);
+    expect(each('Vendu 2 sacs a 5000 par sac', 5000)).toBe(true);
+    expect(each('Vendu 2 sacs pour 5000 par sac', 5000)).toBe(true);
+    expect(each('Sold 2 bags at 5000 par bag', 5000)).toBe(true);
+    expect(each('Vendu 2 cartons, 12 par carton, 6000 F', 12)).toBe(false);
+  });
+
+  it('reads "par" before the item\'s own word in a plural in x or after "des"', () => {
+    const each = (s: string, v: number) => amountsIn(s).find((x) => x.value === v)?.each;
+    expect(each('Vendu 4 gâteaux à 500 F par gâteau', 500)).toBe(true);
+    expect(each('Vendu des mangues à 500 F par mangue', 500)).toBe(true);
+    expect(each('Chaque jour je vends 30 pains, 3000 F par jour', 3000)).toBe(false);
+  });
+
   it('reads "par" before a unit as a price for one in capitals, after F or francs CFA, and before the item\'s own word', () => {
     const at5000 = (s: string) => amountsIn(s).find((x) => x.value === 5000)?.each;
     expect(at5000('VENDU 2 SACS À 5000 FCFA PAR SAC')).toBe(true);

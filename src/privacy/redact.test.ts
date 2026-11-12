@@ -55,6 +55,14 @@ describe('redact', () => {
     expect(isClean('Sold 2 Cokes to thandi_m', r.map)).toBe(false);
   });
 
+  it('takes out a known full name written as one handle', () => {
+    for (const handle of ['thandi_moyo', 'thandi.moyo', 'Thandi  Moyo']) {
+      const r = redact(`Sold 2 Cokes to ${handle}`, ['Thandi Moyo']);
+      expect(r.text.toLowerCase()).not.toContain('moyo');
+      expect(isClean(`Sold 2 Cokes to ${handle}`, r.map)).toBe(false);
+    }
+  });
+
   it('takes the longest known name out of the problem lines first', () => {
     const red = redact('Sold 3 loaves to Thandi', ['Thandi', 'Thandi Moyo']);
     const line = redactAlso('"loaves for Thandi Moyo" has a quantity of 0.', red, ['Thandi', 'Thandi Moyo']);

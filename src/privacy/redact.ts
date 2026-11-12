@@ -27,10 +27,13 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * A pattern that finds `text` with no letter touching it, accented letters counted as letters. "Tom" is not found in
  * "tomorrow", nor "Juma" in "Ijumaa" (Kiswahili for Friday), nor "Phone" inside a "[PHONE_1]" placeholder; "Aimé" is
  * found before a comma, and "Thandi" in "Thandi2" and "thandi_m", since a digit or an underscore is not part of a name.
- * Only the placeholder shape (an underscore, digits and "]") is skipped, so a name joined by an underscore still goes.
+ * Only the placeholder shape (an underscore, digits and "]") is skipped, so a name joined by an underscore still goes,
+ * and the parts of a full name match across an underscore, a dot or several spaces ("thandi_moyo" for "Thandi Moyo").
  */
 export function wholeWord(text: string, flags = 'iu'): RegExp {
-  return new RegExp(`(?<!\\p{L})${escape(text)}(?!\\p{L}|_\\d+\\])`, flags);
+  // A full name may be written as one handle ("thandi_moyo", "thandi.moyo") or with more than one space.
+  const body = escape(text.trim()).split(/\s+/).join('[\\s_.]+');
+  return new RegExp(`(?<!\\p{L})${body}(?!\\p{L}|_\\d+\\])`, flags);
 }
 
 /**
