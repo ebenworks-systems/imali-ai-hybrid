@@ -322,7 +322,7 @@ const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).sli
 
 // ---- reading the owner's words ------------------------------------------------------------------------------------
 
-/** Ask the cloud for a reading of the words with names removed, then check it here. */
+/** Ask the cloud for a reading of the words with the names found taken out, then check it here. */
 async function cloudRead(
   words: string,
   ctx: Context,
@@ -346,7 +346,7 @@ async function cloudRead(
   const reading = restore(tidied, red.map, words);
   const n = Object.keys(red.map).length;
   // The owner sees the exact words that left the device, placeholders and all; the reading above has the names back.
-  const sent = `the words “${red.text}”${problems ? ' and the checks that failed' : ''}, with ${n === 0 ? 'no names to remove' : n === 1 ? '1 name removed' : `${n} names removed`}`;
+  const sent = `the words “${red.text}”${problems ? ' and the checks that failed' : ''}, with ${n === 0 ? 'no names found' : n === 1 ? '1 name removed' : `${n} names removed`}`;
   const check = checkWords(reading, words, ctx.shopCurrency);
   const left = placeholderLeft(tidied, red.map, words);
   if (left) {
@@ -549,7 +549,7 @@ export async function readReceipt(file: Blob, ctx: Context): Promise<Entry> {
 
 // ---- questions about the book -------------------------------------------------------------------------------------
 
-/** Turn a question into a Query. The book itself never goes to any model; only the question can, names removed. */
+/** Turn a question into a Query. The book itself never goes to any model; only the question can, with the names found taken out. */
 export async function readQuestion(question: string, ctx: Context): Promise<{ query: Query; hops: Hop[] }> {
   const lang = await pickLanguage(question);
   const today = new Date().toDateString();

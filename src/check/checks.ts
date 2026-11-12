@@ -6,7 +6,7 @@ import { amountsIn, currencyIn, mentionsEach, numbersIn, same } from './numbers'
 
 export interface CheckResult {
   ok: boolean;
-  /** One plain sentence per problem, shown to the owner and sent (with names removed) to the second opinion. */
+  /** One plain sentence per problem, shown to the owner and sent (with the names found taken out) to the second opinion. */
   problems: string[];
   /** The checks that passed, shown as ticks. */
   passed: string[];
