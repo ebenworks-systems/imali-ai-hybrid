@@ -79,10 +79,21 @@ describe('redact', () => {
     expect(redact('Vendu 2 sacs de riz', ['Awa de Souza']).text).toBe('Vendu 2 sacs de riz');
   });
 
+  it('takes a part of a known name only next to another part, so an ordinary word stays', () => {
+    expect(redact('Tendai never paid for 2 loaves', ['Never Moyo']).text).toContain('never paid');
+    expect(redact('Credit given to Tendai', ['Given Banda']).text).toContain('given');
+    expect(redact('Vendu 3 pain à 100 F', ['Jean Pain']).text).toBe('Vendu 3 pain à 100 F');
+    const two = redact('Paid Thandi. Moyo owes R30', ['Thandi Moyo']);
+    expect(two.text).toBe('Paid [PERSON_1]. [PERSON_2] owes R30');
+    expect(redact('Sold to awa. sy', ['Awa Sy']).text).not.toMatch(/awa|sy\b/i);
+    expect(redact('Sold to mary-anne. moyo', ['Anne Banda', 'Mary-Anne Moyo']).text).not.toMatch(/mary|anne|moyo/i);
+  });
+
   it('takes out each part of a known full name from the device\'s own lines too', () => {
     const r = redact('Sold 2 Cokes', []);
-    const out = redactAlso('Check moyo. thandi line', r, ['Thandi Moyo']);
+    const out = redactAlso('Check thandi. moyo line', r, ['Thandi Moyo']);
     expect(out).not.toMatch(/thandi|moyo/i);
+    expect(redactAlso('"Loaves": price never given', redact('Sold', []), ['Never Moyo'])).toBe('"Loaves": price never given');
   });
 
   it('ignores a blank known name', () => {

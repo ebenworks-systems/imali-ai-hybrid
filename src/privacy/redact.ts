@@ -23,21 +23,30 @@ const NOT_NAMES = new Set(
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const NOT_NAMES_LOWER = new Set([...NOT_NAMES].map((w) => w.toLowerCase()));
-
 /**
- * The parts of each known full name, to take out on their own when the full name is written in a way its pattern
- * misses ("thandi. moyo", "thandi__moyo", "thandi - moyo"). A part shorter than three letters ("de" in "Awa de
- * Souza") or a shop word stays, so a sentence's own words are not taken.
+ * A known full name whose parts sit next to each other with a few other marks between them ("thandi. moyo",
+ * "thandi__moyo", "thandi - moyo", "Paid Thandi. Moyo owes"), which the full-name pattern misses. Each part then gets
+ * its own placeholder, so two people stay two. A part alone ("never" for "Never Moyo") is an ordinary word and stays.
  */
-function nameParts(names: string[]): string[] {
-  const parts = new Set<string>();
-  for (const name of names) {
-    const words = name.trim().split(/\s+/);
-    if (words.length < 2) continue;
-    for (const w of words) if (w.length >= 3 && !NOT_NAMES_LOWER.has(w.toLowerCase())) parts.add(w);
+function splitName(name: string): RegExp | null {
+  const words = name.trim().split(/\s+/);
+  if (words.length < 2 || /\d/.test(name)) return null; // a phone number is not a name
+  const body = words.map((w) => `(${escape(w)})`).join('([^\\p{L}\\p{N}]{1,4})');
+  return new RegExp(`(?<!\\p{L})${body}(?!\\p{L}|_\\d+\\])`, 'giu');
+}
+
+/** Swap each part of each known full name written split, longest names first; `keyFor` gives a part's placeholder. */
+function swapSplitNames(text: string, names: string[], keyFor: (part: string) => string): string {
+  let out = text;
+  for (const name of [...names].sort((a, b) => b.length - a.length)) {
+    const re = splitName(name);
+    if (!re) continue;
+    out = out.replace(re, (...g) => {
+      const groups = g.slice(1, -2) as string[];
+      return groups.map((x, i) => (i % 2 === 0 ? keyFor(x) : x)).join('');
+    });
   }
-  return [...parts];
+  return out;
 }
 
 /**
@@ -63,20 +72,20 @@ export function redact(text: string, known: string[] = []): Redacted {
   const map: Record<string, string> = {};
   let out = text;
   let n = 0;
-  const swap = (name: string) => {
+  const keyFor = (name: string) => {
     const existing = Object.entries(map).find(([, v]) => v.toLowerCase() === name.toLowerCase());
     const key = existing ? existing[0] : `[PERSON_${++n}]`;
     map[key] = existing ? existing[1] : name;
-    out = out.replace(wholeWord(name, 'giu'), key);
+    return key;
+  };
+  const swap = (name: string) => {
+    out = out.replace(wholeWord(name, 'giu'), keyFor(name));
   };
   // Longest names first, so "Thandi Moyo" goes before "Thandi".
   for (const name of [...known].filter(Boolean).sort((a, b) => b.length - a.length)) {
     if (wholeWord(name).test(out)) swap(name);
   }
-  // Then each part of a known full name still in the text, each with its own placeholder.
-  for (const part of nameParts(known)) {
-    if (wholeWord(part).test(out)) swap(part);
-  }
+  out = swapSplitNames(out, known.filter(Boolean), keyFor);
   // Capitalised words not at the start of a sentence and not a known shop word.
   for (const m of out.matchAll(/(?<![.!?]\s|^)\b([A-Z][a-zà-ÿ'’-]{1,})(?:\s([A-Z][a-zà-ÿ'’-]{1,}))?/gu)) {
     const words = [m[1], m[2]].filter(Boolean) as string[];
@@ -107,7 +116,7 @@ export function redactAlso(text: string, red: Redacted, known: string[] = []): s
   let out = text;
   // One list, longest first, so "Thandi Moyo" goes before "Thandi" whichever list each came from.
   const names = new Map<string, string>();
-  for (const n of [...Object.values(red.map), ...known, ...nameParts(known)]) if (n) names.set(n.toLowerCase(), n);
+  for (const n of [...Object.values(red.map), ...known]) if (n) names.set(n.toLowerCase(), n);
   for (const name of [...names.values()].sort((a, b) => b.length - a.length)) {
     if (!wholeWord(name).test(out)) continue;
     let key = Object.entries(red.map).find(([, v]) => v.toLowerCase() === name.toLowerCase())?.[0];
@@ -117,7 +126,13 @@ export function redactAlso(text: string, red: Redacted, known: string[] = []): s
     }
     out = out.replace(wholeWord(name, 'giu'), key);
   }
-  return out;
+  return swapSplitNames(out, [...names.values()], (part) => {
+    const found = Object.entries(red.map).find(([, v]) => v.toLowerCase() === part.toLowerCase())?.[0];
+    if (found) return found;
+    const key = `[PERSON_${Object.keys(red.map).filter((k) => k.startsWith('[PERSON_')).length + 1}]`;
+    red.map[key] = part;
+    return key;
+  });
 }
 
 /** Put the real names back into anything the cloud returned. */

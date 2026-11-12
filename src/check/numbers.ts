@@ -78,11 +78,13 @@ function parForOne(after: string, before: string, prefix: string, rest: string):
   // A bare "a" is not taken: in "il y a 12 par carton" it is the verb, and a pack size is not a price.
   const priced = PRICE_MARK.test(prefix) || /^at$/iu.test(prefix);
   if (!m[1] && !priced && !/(?:^|[^\p{L}])(?:à|at)\s*$/iu.test(before)) {
-    // A bare "pour" or "for" prices the amount only when "par" names the item counted before it and no currency
-    // comes later: "Vendu 2 sacs pour 5000 par sac" is a price for one, "Commande pour 12 par carton, 6000 F" and
-    // "Livré pour 3 par personne" are not.
+    // A bare "pour" or "for" prices the amount only when "par" names the item counted before it, the text names no
+    // currency and no number follows: "Vendu 2 sacs pour 5000 par sac" is a price for one; "Commande pour 12 par
+    // carton, 6000 F", "6000 F: 2 cartons pour 12 par carton", "... pour 12 par carton, total 6000" and "Livré pour 3
+    // par personne" are not.
     const pour = /^(?:pour|for)$/iu.test(prefix) || /(?:^|[^\p{L}])(?:pour|for)\s*$/iu.test(before);
-    return pour && isItem && !hasCurrency(rest.slice(m[0].length));
+    const later = rest.slice(m[0].length);
+    return pour && isItem && !hasCurrency(before) && !hasCurrency(later) && !/\d/.test(later);
   }
   return PAR_UNITS.test(word) || isItem;
 }
