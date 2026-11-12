@@ -152,7 +152,7 @@ describe('reading words', () => {
     expect(e.reading.total).toBe(45);
     expect(e.firstReading?.total).toBe(15);
     expect(e.hops.map((h) => `${h.step}:${h.where}`)).toEqual(['read:device', 'second-opinion:cloud']);
-    expect(e.hops[1].sent).toBe('the words, with 1 name removed');
+    expect(e.hops[1].sent).toBe('the words “Sold 3 loaves at R15 each to [PERSON_1], she pays Friday” and the checks that failed, with 1 name removed');
   });
 
   it('sends an entry about a customer whose name is also an example in the instructions', () => {
@@ -213,7 +213,7 @@ describe('reading words', () => {
     expect(sent).toContain('Sold 3 loaves at R15 each to [PERSON_1], she pays Friday');
     expect(sent).toContain('"Loaves" has a quantity of 0');
     expect(sent).not.toContain('[PERSON_2]');
-    expect(e.hops[1].sent).toBe('the words, with 1 name removed');
+    expect(e.hops[1].sent).toBe('the words “Sold 3 loaves at R15 each to [PERSON_1], she pays Friday” and the checks that failed, with 1 name removed');
     expect(e.status).toBe('checked-in-cloud');
   });
 
@@ -248,6 +248,9 @@ describe('reading words', () => {
     expect(e.language).toBe('sw');
     expect(e.status).toBe('checked');
     expect(e.reading.person).toBe('Juma');
+    // The step shows the owner the exact words that left the device, with the placeholder and never the name.
+    expect(e.hops[0].sent).toBe('the words “Nimemuuzia [PERSON_1] mikate 2 kwa KSh 60 kila mmoja, atalipa Ijumaa”, with 1 name removed');
+    expect(e.hops[0].sent).not.toContain('Juma');
   });
 
   it('asks the cloud model once when the second-opinion model does not answer, and says so', async () => {
@@ -515,6 +518,14 @@ describe('questions', () => {
     expect(query).toEqual({ intent: 'owed_by', person: 'Thandi', item: null, period: 'all' });
     expect(calls.map((c) => c.mode)).toEqual(['only_on_device']);
     expect(hops[0].sent).toBe('');
+  });
+
+  it('shows the question that went to the cloud, with the placeholder and never the name', async () => {
+    cloudAnswer = { intent: 'owed_by', person: '[PERSON_1]', item: '', period: 'all' };
+    const { query, hops } = await readQuestion('Juma anadaiwa kiasi gani?', ctx);
+    expect(query.person).toBe('Juma');
+    expect(hops[0].sent).toBe('the question “[PERSON_1] anadaiwa kiasi gani?” only, 1 name removed; no records');
+    expect(hops[0].sent).not.toContain('Juma');
   });
 });
 

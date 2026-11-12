@@ -341,7 +341,8 @@ async function cloudRead(
   const tidied = tidyReading(r.value, ctx.shopCurrency);
   const reading = restore(tidied, red.map);
   const n = Object.keys(red.map).length;
-  const sent = `the words, with ${n === 0 ? 'no names to remove' : n === 1 ? '1 name removed' : `${n} names removed`}`;
+  // The owner sees the exact words that left the device, placeholders and all; the reading above has the names back.
+  const sent = `the words “${red.text}”${problems ? ' and the checks that failed' : ''}, with ${n === 0 ? 'no names to remove' : n === 1 ? '1 name removed' : `${n} names removed`}`;
   const check = checkWords(reading, words);
   const left = placeholderLeft(tidied, red.map, words);
   if (left) {
@@ -580,6 +581,6 @@ export async function readQuestion(question: string, ctx: Context): Promise<{ qu
   const query = restore(tidied, red.map);
   return {
     query,
-    hops: [hop('ask', r, because(why, r), `the question only, ${n} name${n === 1 ? '' : 's'} removed; no records`)],
+    hops: [hop('ask', r, because(why, r), `the question “${red.text}” only, ${n} name${n === 1 ? '' : 's'} removed; no records`)],
   };
 }
