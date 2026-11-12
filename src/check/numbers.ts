@@ -55,10 +55,10 @@ const ARTICLES = 'un|une|a|an';
 const OTHER_VERBS =
   're[cç]u(?:e|s|es)?|livr[eé](?:e|s|es)?|ach[eéè]t[eé]?(?:e|s|es)?|pay[eé](?:e|s|es)?|command[eé](?:e|s|es)?|' +
   'pai(?:e|es|ent)|re[cç]oi(?:s|t|vent)|pris(?:e|es)?|arriv[eé](?:e|s|es)?|received|got|delivered|bought|ordered|paid';
-/** Words for the customer, after which a verb's participle describes them ("à un client payé cash"). */
+/** Words for the customer, after which a verb, with "qui" or not, describes them ("à un client payé cash", "qui paie cash"). */
 const PERSON_WORDS = 'clients?|clientes?|customers?|amie?s?|voisine?s?|dame|dames|monsieur|madame|femme|homme|personne';
-/** Words before which "commande" or "paye" is a noun, not a verb ("sur commande", "avec la paye"). */
-const NOUN_LEADS = 'une|un|sur|de|du|par|ma|ta|sa|mon|ton|son|notre|votre';
+/** Words before which "commande", "paye" or "paie" is a noun, not a verb ("sur commande", "avec la paye", "avant paie"). */
+const NOUN_LEADS = 'une|un|sur|de|du|des|par|ma|ta|sa|mon|ton|son|notre|votre|avant|après|apres|à';
 /** The leads that are also object pronouns before a verb after a subject ("il en commande", "elle la paye"). */
 const OBJECT_LEADS = 'la|le|les|en|leur';
 /**
@@ -119,7 +119,7 @@ function parForOne(after: string, before: string, prefix: string, rest: string):
     // subject pronoun comes before that word, which makes it an object pronoun ("il en commande 2 cartons").
     const stop =
       `(?:${COUNT_WORDS})(?![\\p{L}])|(?<!(?:^|[^\\p{L}])(?:à|au|aux|pour|to|for|de|avec)\\s+)(?:${ARTICLES})(?![\\p{L}])|` +
-      `(?<!(?:^|[^\\p{L}])(?:${PERSON_WORDS})\\s+)` +
+      `(?<!(?:^|[^\\p{L}])(?:${PERSON_WORDS})\\s+(?:qui\\s+)?)` +
       `(?<!(?:^|[^\\p{L}])(?:${NOUN_LEADS})\\s+)(?<!(?:^|[^\\p{L}])(?<!${SUBJECT_BEFORE})(?:${OBJECT_LEADS})\\s+)` +
       `(?<!(?:^|[^\\p{L}])[dl]['’])(?:${OTHER_VERBS})(?![\\p{L}])`;
     const sale = new RegExp(

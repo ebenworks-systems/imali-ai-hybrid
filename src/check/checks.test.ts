@@ -421,3 +421,18 @@ describe('second review round 21, second pass (EBE-11682)', () => {
     }
   });
 });
+
+describe('second review round 21, third pass (EBE-11682)', () => {
+  it('reads "paie" as a noun after a word such as "avant", and a customer "qui paie" as the customer', () => {
+    for (const words of [
+      'Vendu avant paie 2 sacs pour 5000 par sac',
+      "Vendu à crédit jusqu'à paie 2 sacs pour 5000 par sac",
+      'Vendu à crédit, remboursé après paie, 2 sacs pour 5000 par sac',
+      'Vendu (avance des paies) 2 sacs pour 5000 par sac',
+      'Vendu à une cliente qui paie cash, 2 sacs pour 5000 par sac',
+      'Vendu à mes clients qui paient cash 2 sacs pour 5000 par sac',
+    ]) {
+      expect(amountsIn(words).find((a) => a.value === 5000)?.each, words).toBe(true);
+    }
+  });
+});

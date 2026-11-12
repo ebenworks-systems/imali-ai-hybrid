@@ -469,28 +469,38 @@ function loosePhone(text: string): boolean {
     // Once sums, prices, dates, times and ranges are out, digits joined by a mark other than a space or a comma, with a
     // group of one to three digits among them, are a phone written with odd marks ("263 . 77 . 123 . 4567",
     // "263 : 77 : 123", "263*77*123*4567").
-    // A run with a phone's local part ("555-1234") keeps everything; elsewhere a plain group is taken out unless a mark
-    // other than a space or a comma joins it to a group that is not plain, touching both ("21.25)555 1234",
-    // "11-27)5551234") or beside seven digits or more ("21.25) 5551234"); "12/11/2026 - 1500" and "12 @ 1250.00" stay.
+    // A run with a phone's local part ("555-1234") keeps everything. Elsewhere a plain group is taken out, except a
+    // price or range shaped like a phone's piece: one that a mark other than a space, a comma, "@" or "=" joins to
+    // groups that are not plain and hold six digits or more up to the next plain group ("263.77 / 123 4567",
+    // "21.25)555 1234", "11-27)5551234"). A date or a time is always taken out ("12/11/2026 - 1500", "14:00 - 2500"),
+    // and so is a price beside a short amount ("Sold 12@1250.00", "Paid 1500 (12.50)").
     const local = groups.some((g) => /^\d+-\d+$/.test(g) && !plain(g));
-    let left = run;
     let at = 0;
     const spans = groups.map((g) => {
       const from = run.indexOf(g, at);
       at = from + g.length;
-      return { g, from, to: at, plain: plain(g) };
+      return { g, from, to: at, plain: plain(g), piece: PRICE.test(g) || range(g) };
     });
+    // The digits of the groups that are not plain from span i on, stepping by `step`, up to the next plain group.
+    const block = (i: number, step: number) => {
+      let n = 0;
+      for (let j = i; j >= 0 && j < spans.length && !spans[j].plain; j += step) n += digitCount(spans[j].g);
+      return n;
+    };
+    const joined = (i: number, step: number) => {
+      const o = spans[i + step];
+      if (!o || o.plain) return false;
+      const between = step < 0 ? run.slice(o.to, spans[i].from) : run.slice(spans[i].to, o.from);
+      return /[^\s,@=]/.test(between) && block(i + step, step) >= 6;
+    };
+    const out = run.split(''); // UTF-16 units, as the spans' positions are
     if (!local) {
       for (const [i, s] of spans.entries()) {
-        const joined = (o: (typeof spans)[number] | undefined, between: string) =>
-          !!o && !o.plain && /[^\s,]/.test(between) && (!/\s/.test(between) || digitCount(o.g) >= 7);
-        const prev = spans[i - 1];
-        const next = spans[i + 1];
-        if (!s.plain || joined(prev, prev ? run.slice(prev.to, s.from) : '') || joined(next, next ? run.slice(s.to, next.from) : ''))
-          continue;
-        left = left.slice(0, s.from) + ' '.repeat(s.g.length) + left.slice(s.to);
+        if (!s.plain || (s.piece && (joined(i, -1) || joined(i, 1)))) continue;
+        for (let k = s.from; k < s.to; k++) out[k] = ' ';
       }
     }
+    const left = out.join('');
     const digits = left.match(/\d+/g) ?? [];
     if (digitCount(left) >= 8 && /[^\d\s,]/.test(left) && digits.some((d) => d.length <= 3)) return true;
   }

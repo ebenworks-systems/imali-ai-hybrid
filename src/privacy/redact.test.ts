@@ -752,3 +752,42 @@ describe('second review round 21, second pass (EBE-11682)', () => {
     }
   });
 });
+
+describe('second review round 21, third pass (EBE-11682)', () => {
+  const clean = (said: string) => {
+    const red = redact(said, []);
+    return isClean(red.text, red.map, red.parts);
+  };
+
+  it('refuses a phone with a price-shaped piece across a spaced mark', () => {
+    for (const said of [
+      '263.77 / 123 4567',
+      '27.82 ( 123 4567 )',
+      '254.71 / 234 567 8',
+      'Call 212 555 / 12.34',
+      '77.12 ( 345 678 )',
+      'Call 712 345 / 67.89',
+    ]) {
+      expect(clean(said), said).toBe(false);
+    }
+  });
+
+  it('lets a price or a date touching a short amount through', () => {
+    for (const said of [
+      'Sold 12@1250.00 = 15000.00',
+      'Sold 120@125.50 total 15060.00',
+      'Paid 1500(12/11/2026)',
+      'Shift 08:00-16:00=2500',
+      '2500(14:00) paid',
+      'Paid 1500 2000 (12/11/2026)',
+    ]) {
+      expect(clean(said), said).toBe(true);
+    }
+  });
+
+  it('checks a long run of prices and counts in linear time', () => {
+    const start = Date.now();
+    isClean(`x ${'1.25 3 * '.repeat(16000)}`, {});
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+});
