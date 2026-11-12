@@ -96,6 +96,31 @@ describe('redact', () => {
     expect(redactAlso('"Loaves": price never given', redact('Sold', []), ['Never Moyo'])).toBe('"Loaves": price never given');
   });
 
+  it('takes a split full name before a shorter known name, in both passes', () => {
+    for (const text of ['Paid Thandi. Moyo, R30', 'sold to thandi. moyo, R30']) {
+      const r = redact(text, ['Thandi Moyo', 'Thandi']);
+      expect(r.text).not.toMatch(/thandi|moyo/i);
+      expect(isClean(r.text, r.map, r.parts, ['Thandi Moyo', 'Thandi'])).toBe(true);
+    }
+    const red = redact('Thandi paid R30', ['Thandi Moyo']);
+    expect(redactAlso('Check thandi. moyo line', red, ['Thandi Moyo'])).not.toMatch(/thandi|moyo/i);
+  });
+
+  it('keeps a split part apart from the names, so the same word alone stays and the check still passes', () => {
+    const r = redact('Paid Never. Moyo R30, never again', ['Never Moyo']);
+    expect(r.text).toBe('Paid [PERSON_1]. [PERSON_2] R30, never again');
+    expect(isClean(r.text, r.map, r.parts, ['Never Moyo'])).toBe(true);
+    expect(redactAlso('price never given', r, ['Never Moyo'])).toBe('price never given');
+    // A split name the passes missed still fails the check.
+    expect(isClean('Sold to thandi. moyo', {}, [], ['Thandi Moyo'])).toBe(false);
+  });
+
+  it('takes a split full name across a longer gap or a digit', () => {
+    for (const text of ['Sold to thandi . . moyo', 'Sold to thandi2moyo']) {
+      expect(redact(text, ['Thandi Moyo']).text).not.toMatch(/thandi|moyo/i);
+    }
+  });
+
   it('ignores a blank known name', () => {
     const r = redact('Sold 2 Cokes to Thandi', [' ', '']);
     expect(r.text).not.toContain('[PERSON_1]2');

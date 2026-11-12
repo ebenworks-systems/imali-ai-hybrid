@@ -78,13 +78,18 @@ function parForOne(after: string, before: string, prefix: string, rest: string):
   // A bare "a" is not taken: in "il y a 12 par carton" it is the verb, and a pack size is not a price.
   const priced = PRICE_MARK.test(prefix) || /^at$/iu.test(prefix);
   if (!m[1] && !priced && !/(?:^|[^\p{L}])(?:à|at)\s*$/iu.test(before)) {
-    // A bare "pour" or "for" prices the amount only when "par" names the item counted before it, the text names no
-    // currency and no number follows: "Vendu 2 sacs pour 5000 par sac" is a price for one; "Commande pour 12 par
-    // carton, 6000 F", "6000 F: 2 cartons pour 12 par carton", "... pour 12 par carton, total 6000" and "Livré pour 3
-    // par personne" are not.
-    const pour = /^(?:pour|for)$/iu.test(prefix) || /(?:^|[^\p{L}])(?:pour|for)\s*$/iu.test(before);
+    // A bare "pour" or "for" prices the amount only in a sale whose count and item come right before it, when "par"
+    // names that item, the text names no currency and no number follows: "Vendu 2 sacs pour 5000 par sac" is a price
+    // for one; "Commande pour 12 par carton, 6000 F", "6000 F: 2 cartons pour 12 par carton", "... pour 12 par carton,
+    // total 6000", "Reçu 2 cartons pour 12 par carton", "Vendu 2 sacs, livré pour 3 par sac" and "Livré pour 3 par
+    // personne" are not.
+    const lead = /^(?:pour|for)$/iu.test(prefix) ? `${before} ${prefix}` : before;
+    const sale = new RegExp(
+      `(?:^|[^\\p{L}])(?:vendu|vendus|vendue|vendues|vend|vends|sold|sell|sells)(?![\\p{L}])[^.;]*?(?:\\d+|${NUMBER_WORDS})\\s+(?:de\\s+|d['’])?\\p{L}+\\s+(?:pour|for)\\s*$`,
+      'iu',
+    );
     const later = rest.slice(m[0].length);
-    return pour && isItem && !hasCurrency(before) && !hasCurrency(later) && !/\d/.test(later);
+    return sale.test(lead) && isItem && !hasCurrency(before) && !hasCurrency(later) && !/\d/.test(later);
   }
   return PAR_UNITS.test(word) || isItem;
 }

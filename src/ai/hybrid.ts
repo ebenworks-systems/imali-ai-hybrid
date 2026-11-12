@@ -230,7 +230,7 @@ async function cloudRead(
   // hold example names such as Sipho, which must not stop an entry about a real Sipho.
   const red = redact(words, ctx.knownNames);
   const lines = (problems ?? []).map((p) => redactAlso(p, red, ctx.knownNames));
-  if (!isClean([red.text, ...lines].join('\n'), red.map)) throw new Error('A name was still in the words; nothing was sent.');
+  if (!isClean([red.text, ...lines].join('\n'), red.map, red.parts, ctx.knownNames)) throw new Error('A name was still in the words; nothing was sent.');
   const prompt = problems ? secondOpinionPrompt(red.text, ctx.shopCurrency, lines) : readPrompt(red.text, ctx.shopCurrency);
   const r = await call<unknown>([{ type: 'text', text: prompt }], {
     mode: InferenceMode.ONLY_IN_CLOUD,
@@ -446,7 +446,7 @@ export async function readQuestion(question: string, ctx: Context): Promise<{ qu
   const blocked = cloudBlocked(ctx);
   if (blocked) throw new Error(`This question needs the cloud (${why}), and ${blocked}.`);
   const red = redact(question, ctx.knownNames);
-  if (!isClean(red.text, red.map)) throw new Error('A name was still in the question; nothing was sent.');
+  if (!isClean(red.text, red.map, red.parts, ctx.knownNames)) throw new Error('A name was still in the question; nothing was sent.');
   const prompt = askPrompt(red.text, today);
   ctx.onStep?.('Asking the cloud what the question means, names taken out');
   const r = await call<unknown>([{ type: 'text', text: prompt }], {

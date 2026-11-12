@@ -101,6 +101,8 @@ describe('numbers', () => {
     expect(each('Vendu 2 cartons pour 12 par carton, 6000 F', 12)).toBe(false);
     expect(each('6000 F: 2 cartons pour 12 par carton', 12)).toBe(false);
     expect(each('Vendu 2 cartons pour 12 par carton, total 6000', 12)).toBe(false);
+    expect(each('Reçu 2 cartons pour 12 par carton', 12)).toBe(false);
+    expect(each('Vendu 2 sacs, livré pour 3 par sac', 3)).toBe(false);
     expect(each('Commande pour 12 par carton, 6000 F', 12)).toBe(false);
     expect(each('Livré pour 3 par personne', 3)).toBe(false);
     expect(each('Vendu 2 cartons, il y a  12 par carton, 6000 F', 12)).toBe(false);
