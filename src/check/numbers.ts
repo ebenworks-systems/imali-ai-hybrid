@@ -82,11 +82,12 @@ function parForOne(after: string, before: string, prefix: string, rest: string):
     // names that item, the text names no currency and no number follows: "Vendu 2 sacs pour 5000 par sac" is a price
     // for one; "Commande pour 12 par carton, 6000 F", "6000 F: 2 cartons pour 12 par carton", "... pour 12 par carton,
     // total 6000", "Reçu 2 cartons pour 12 par carton", "Vendu 2 sacs, livré pour 3 par sac" and "Livré pour 3 par
-    // personne" are not. The count stands alone ("la" is not "a") and sits in the sale's own clause, before any comma,
-    // so "Vendu 2 sacs, reçu 2 cartons pour 12 par carton" is not either.
+    // personne" are not. The count stands alone ("la" is not "a") and is the first number after the verb ("Vendu hier, 2
+    // sacs pour 5000 par sac" is a price; in "Vendu 2 sacs, reçu 2 cartons pour 12 par carton" the 2 sacs are the sale's
+    // count, so 12 is not).
     const lead = /^(?:pour|for)$/iu.test(prefix) ? `${before} ${prefix}` : before;
     const sale = new RegExp(
-      `(?:^|[^\\p{L}])(?:vendu|vendus|vendue|vendues|vend|vends|sold|sell|sells)(?![\\p{L}])[^.;,]*?(?<![\\p{L}\\p{N}])(?:\\d+|${NUMBER_WORDS})\\s+(?:de\\s+|d['’])?\\p{L}+\\s+(?:pour|for)\\s*$`,
+      `(?:^|[^\\p{L}])(?:vendu|vendus|vendue|vendues|vend|vends|sold|sell|sells)(?![\\p{L}])[^.;\\d]*?(?<![\\p{L}\\p{N}])(?:\\d+(?:[ ,.]\\d{3})*|${NUMBER_WORDS})\\s+(?:de\\s+|d['’])?\\p{L}+\\s+(?:pour|for)\\s*$`,
       'iu',
     );
     const later = rest.slice(m[0].length);

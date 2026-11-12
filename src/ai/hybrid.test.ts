@@ -416,6 +416,12 @@ describe('reading words', () => {
     // Round 13 (EBE-11444): a name the list does not hold is kept whole, so it fails the code check.
     expect(currencyCode('Australian dollars', 'ZAR')).toBe('AUSTRALIAN DOLLARS');
     expect(currencyCode('Botswana pula', 'ZAR')).toBe('BOTSWANA PULA');
+    // Round 14: a country's name with or without its -n, and a code with a gloss after it.
+    expect(currencyCode('Tanzania shillings', 'ZAR')).toBe('TZS');
+    expect(currencyCode('Uganda shillings', 'ZAR')).toBe('UGX');
+    expect(currencyCode('Kenya shillings', 'ZAR')).toBe('KES');
+    expect(currencyCode('USD (US dollars)', 'ZAR')).toBe('USD');
+    expect(currencyCode('ZAR - rand', 'KES')).toBe('ZAR');
     // The names the read prompt itself gives, and a country's name for its own currency.
     expect(currencyCode('dollars', 'ZAR')).toBe('USD');
     expect(currencyCode('US dollars', 'ZAR')).toBe('USD');
@@ -509,5 +515,14 @@ describe('questions', () => {
     expect(query).toEqual({ intent: 'owed_by', person: 'Thandi', item: null, period: 'all' });
     expect(calls.map((c) => c.mode)).toEqual(['only_on_device']);
     expect(hops[0].sent).toBe('');
+  });
+});
+
+describe('round 14 prompt (EBE-11444)', () => {
+  it("names Tanzanian and Ugandan shillings in the read prompt, as the device's currency check reads them", async () => {
+    const { readPrompt } = await import('./prompts');
+    const p = readPrompt('Sold 2 sodas for 1500 Tanzanian shillings', 'ZAR');
+    expect(p).toMatch(/Tanzanian shillings is TZS/);
+    expect(p).toMatch(/Ugandan shillings is UGX/);
   });
 });

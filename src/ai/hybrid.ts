@@ -254,9 +254,9 @@ function num(v: unknown): number {
  */
 const CURRENCY_FORMS: [RegExp, string][] = [
   [/^(?:francs?\s+)?F?\s?CFA(?:\s+francs?)?$/i, 'XOF'],
-  [/^(?:K\.?\s?Shs?\.?|(?:Kenyan\s+)?shillings?)$/i, 'KES'],
-  [/^(?:T\.?\s?Shs?\.?|Tanzanian\s+shillings?)$/i, 'TZS'],
-  [/^(?:U\.?\s?Shs?\.?|Ugandan\s+shillings?)$/i, 'UGX'],
+  [/^(?:K\.?\s?Shs?\.?|(?:Kenyan?\s+)?shillings?)$/i, 'KES'],
+  [/^(?:T\.?\s?Shs?\.?|Tanzanian?\s+shillings?)$/i, 'TZS'],
+  [/^(?:U\.?\s?Shs?\.?|Ugandan?\s+shillings?)$/i, 'UGX'],
   [/^ZiG$/i, 'ZWG'],
   [/^(?:R|(?:South\s+African\s+)?rands?)$/i, 'ZAR'],
   [/^(?:Rs\.?|₹|(?:Indian\s+)?rupees?)$/i, 'INR'],
@@ -271,8 +271,9 @@ export function currencyCode(v: string | null, shopCurrency: string): string {
   if (!v) return shopCurrency;
   const t = v.trim();
   for (const [re, code] of CURRENCY_FORMS) if (re.test(t)) return code;
-  // Anything else is kept whole: cut to three letters, "Australian dollars" would pass the check as "AUS".
-  return t.toUpperCase();
+  // A code with a gloss after it ("USD (US dollars)") is that code; anything else is kept whole: cut to three letters,
+  // "Australian dollars" would pass the check as "AUS".
+  return /^([A-Z]{3})(?![A-Za-z])/.exec(t)?.[1] ?? t.toUpperCase();
 }
 
 export function tidyReading(raw: unknown, shopCurrency: string): Reading {
@@ -342,7 +343,7 @@ async function cloudRead(
   const n = Object.keys(red.map).length;
   const sent = `the words, with ${n === 0 ? 'no names to remove' : n === 1 ? '1 name removed' : `${n} names removed`}`;
   const check = checkWords(reading, words);
-  const left = placeholderLeft(tidied, red.map);
+  const left = placeholderLeft(tidied, red.map, words);
   if (left) {
     check.ok = false;
     check.problems.push(`The cloud's answer still holds "${left}" where a name was taken out, so the name is not known.`);
@@ -574,7 +575,7 @@ export async function readQuestion(question: string, ctx: Context): Promise<{ qu
   });
   const n = Object.keys(red.map).length;
   const tidied = tidyQuery(r.value);
-  const left = placeholderLeft(tidied, red.map);
+  const left = placeholderLeft(tidied, red.map, question);
   if (left) throw new Error(`The cloud's answer still holds "${left}" where a name was taken out; ask again with the name.`);
   const query = restore(tidied, red.map);
   return {

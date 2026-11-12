@@ -12,10 +12,30 @@ export interface Redacted {
   parts?: string[];
 }
 
-const PHONE = /(?:\+?\d[\d\s-]{7,}\d)/g;
+/** A run of digits, spaces, brackets, dots, slashes and hyphens: a phone number when it holds nine digits or more. */
+const PHONE = /\+?\(?\d[\d \t().\/-]{7,}\d/g;
+const digitCount = (s: string) => s.replace(/\D/g, '').length;
 
 /** A phone number's digits with the leading + and zeros gone, so "0771234567" and the device's 771234567 match. */
 const phoneDigits = (s: string) => s.replace(/\D/g, '').replace(/^0+/, '');
+
+/**
+ * Nine digits or more written the way a phone is ("077 123 4567", "+263...", "(077) 123-4567", "0771234567"). A plain
+ * run with no leading 0 ("1500000000") is how the device prints an amount, so it is not one.
+ */
+const looksLikePhone = (s: string) => digitCount(s) >= 9 && (/\D/.test(s) || /^0/.test(s));
+
+/**
+ * The placeholder of the owner's phone that these digits are, wholly or in part (six digits or more), or undefined.
+ * The device prints a number it read as plain digits, and its number reader may split "077 123 4567" into 77123456.
+ */
+function mappedPhone(digits: string, map: Record<string, string>): string | undefined {
+  if (digits.length < 6) return undefined;
+  return Object.entries(map).find(([k, v]) => {
+    const pd = phoneDigits(v);
+    return k.startsWith('[PHONE_') && pd.length >= 6 && (pd.includes(digits) || digits.includes(pd));
+  })?.[0];
+}
 
 /** Capitalised words that are not names in a shop's sentence. */
 const NOT_NAMES = new Set(
@@ -114,6 +134,7 @@ export function redact(text: string, known: string[] = []): Redacted {
   }
   let p = 0;
   out = out.replace(PHONE, (match) => {
+    if (digitCount(match) < 9) return match; // a date such as 12/11/2026 or a short amount
     const key = `[PHONE_${++p}]`;
     map[key] = match;
     return key;
@@ -148,16 +169,17 @@ export function redactAlso(text: string, red: Redacted, known: string[] = []): s
     out = swapSplitName(out, name, (part) => keyFor(part, true));
   }
   // A phone number the device read as a quantity or a total comes back printed as plain digits ("771234567" for the
-  // owner's "0771234567"): it takes the owner's placeholder when the digits match, else one of its own.
+  // owner's "0771234567", or part of it): it takes the owner's placeholder. Anything else written as a phone gets one of
+  // its own; a plain amount ("1500000000") stays, since the second opinion needs it.
   out = out.replace(PHONE, (match) => {
-    const digits = phoneDigits(match);
-    let key = Object.entries(red.map).find(([k, v]) => k.startsWith('[PHONE_') && phoneDigits(v) === digits)?.[0];
-    if (!key) {
-      key = `[PHONE_${Object.keys(red.map).filter((k) => k.startsWith('[PHONE_')).length + 1}]`;
-      red.map[key] = match;
-    }
-    return key;
+    const key = mappedPhone(phoneDigits(match), red.map);
+    if (key) return key;
+    if (!looksLikePhone(match)) return match;
+    const own = `[PHONE_${Object.keys(red.map).filter((k) => k.startsWith('[PHONE_')).length + 1}]`;
+    red.map[own] = match;
+    return own;
   });
+  out = out.replace(/(?<!\d)\d{6,}(?!\d)/g, (run) => mappedPhone(phoneDigits(run), red.map) ?? run);
   red.parts = [...parts];
   return out;
 }
@@ -201,15 +223,15 @@ export function restore<T>(value: T, map: Record<string, string>): T {
  * A placeholder still in a restored answer, in any of the forms a model writes one ("[PERSON_3]", "PERSON1",
  * "Person 1", "PERSON_1s"), or null. Such an answer names nobody the owner knows, so it must not count as checked.
  */
-export function placeholderIn(value: unknown, phoneSent = false): string | null {
+export function placeholderIn(value: unknown, phoneSent?: (hit: string) => boolean): string | null {
   if (typeof value === 'string') {
     return (
       /\bPERSON[\s_-]?\d+/i.exec(value)?.[0] ??
       /\bPHONE[\s_-]?\d+/.exec(value)?.[0] ??
       /\bphone_\d+/i.exec(value)?.[0] ??
       /^\s*[[{<]?(phone[\s_-]?\d+)[\]}>]?\s*$/i.exec(value)?.[1] ??
-      // When a phone placeholder was sent, "Phone 1" anywhere in a value is that placeholder rewritten.
-      (phoneSent ? /\bphone[\s_-]?\d+\b/i.exec(value)?.[0] : undefined) ??
+      // "Phone 1" anywhere in a value is a sent phone placeholder rewritten, when `phoneSent` says it is one.
+      [...value.matchAll(/\bphone[\s_-]?\d+\b/gi)].map((m) => m[0]).find((h) => phoneSent?.(h)) ??
       null
     );
   }
@@ -228,8 +250,13 @@ export function placeholderIn(value: unknown, phoneSent = false): string | null 
  * A placeholder the cloud's answer still holds once every placeholder in the map is taken out, or null. It is read
  * before the real values go back, so a phone number the owner wrote after the word "phone" is not taken for one.
  */
-export function placeholderLeft(value: unknown, map: Record<string, string>): string | null {
-  const phoneSent = Object.keys(map).some((k) => k.startsWith('[PHONE_'));
+export function placeholderLeft(value: unknown, map: Record<string, string>, said = ''): string | null {
+  // "Phone 2" inside a value is a placeholder only when [PHONE_2] was sent and the owner did not write it themselves
+  // ("a phone 2 cover").
+  const phoneSent = (hit: string) => {
+    const n = /\d+/.exec(hit)?.[0];
+    return !!n && `[PHONE_${n}]` in map && !new RegExp(`\\bphone[\\s_-]?${n}\\b`, 'i').test(said);
+  };
   return placeholderIn(restore(value, Object.fromEntries(Object.keys(map).map((k) => [k, '']))), phoneSent);
 }
 
@@ -242,7 +269,9 @@ export function isClean(text: string, map: Record<string, string>, parts: string
   const skip = new Set(parts);
   const whole = Object.entries(map).filter(([k]) => !skip.has(k)).map(([, v]) => v);
   return (
-    !new RegExp(PHONE.source).test(text) && // no phone number of any kind, mapped or not
+    // No number written as a phone, and no run of the owner's phone digits, whole or in part.
+    ![...text.matchAll(PHONE)].some((m) => looksLikePhone(m[0])) &&
+    ![...text.matchAll(/\d{6,}/g)].some((m) => mappedPhone(phoneDigits(m[0]), map)) &&
     whole.every((v) => !wholeWord(v).test(text)) &&
     [...whole, ...known].every((v) => !splitName(v)?.test(text))
   );

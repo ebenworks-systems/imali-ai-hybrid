@@ -87,6 +87,10 @@ describe('numbers', () => {
     // later clause's.
     expect(each('Vendu 2 sacs, la livraison pour 3 par sac', 3)).toBe(false);
     expect(each('Vendu 2 sacs, reçu 2 cartons pour 12 par carton', 12)).toBe(false);
+    // Round 14 (EBE-11444): a comma before the count does not stop it, and the count may carry thousands.
+    expect(each('Vendu hier, 2 sacs pour 5000 par sac', 5000)).toBe(true);
+    expect(each('Vendu à Awa, 2 sacs pour 5000 par sac', 5000)).toBe(true);
+    expect(each('Vendu 1,000 sacs pour 50 par sac', 50)).toBe(true);
     const pains = r({ items: [{ name: 'pain', quantity: 30, unit_price: 100, line_total: 3000 }], total: 3000, currency: 'XOF' });
     expect(checkWords(pains, 'Chaque jour je vends 30 pains, 3000 F par jour').ok).toBe(true);
   });

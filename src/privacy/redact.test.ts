@@ -210,9 +210,9 @@ describe('round 13 (EBE-11444)', () => {
     const line = redactAlso('"airtime": 771234567 x 20, not 20.', red, []);
     expect(line).not.toContain('771234567');
     expect(line).toContain('[PHONE_1]');
-    // A number the owner never wrote gets a placeholder of its own.
-    const other = redactAlso('The total 263772123456 is not 20.', red, []);
-    expect(other).not.toMatch(/\d{9}/);
+    // A number written as a phone that the owner never wrote gets a placeholder of its own.
+    const other = redactAlso('The person +263 77 212 3456 is not in the words.', red, []);
+    expect(other).not.toMatch(/\d{3}/);
     expect(other).toContain('[PHONE_2]');
     expect(isClean('"airtime": 771234567 x 20', red.map)).toBe(false);
     expect(isClean(line, red.map)).toBe(true);
@@ -223,5 +223,35 @@ describe('round 13 (EBE-11444)', () => {
     expect(placeholderLeft({ items: [{ name: 'airtime for Phone 1' }] }, red.map)).not.toBeNull();
     // With no phone in the map, "phone 1 charger" is an ordinary item.
     expect(placeholderLeft({ items: [{ name: 'phone 1 charger' }] }, {})).toBeNull();
+  });
+});
+
+describe('round 14 (EBE-11444)', () => {
+  it('takes out a phone written with brackets or dots, and the check refuses one left in', () => {
+    for (const said of ['call (077) 123-4567 for R10', 'call 077.123.4567 for R10']) {
+      const red = redact(said, []);
+      expect(red.text).not.toMatch(/\d{3}/);
+      expect(isClean(said, red.map)).toBe(false);
+      expect(isClean(red.text, red.map)).toBe(true);
+    }
+    // A date keeps its digits: it has fewer than nine.
+    expect(redact('Paid on 12/11/2026', []).text).toBe('Paid on 12/11/2026');
+  });
+
+  it("leaves an ordinary amount in a problem line and takes out part of the owner's phone", () => {
+    const red = redact('Sold airtime 20 to 077 123 4567 for R10', []);
+    expect(redactAlso('The total 1500000000 is not in the words.', red, [])).toBe('The total 1500000000 is not in the words.');
+    expect(Object.keys(red.map).filter((k) => k.startsWith('[PHONE_'))).toHaveLength(1);
+    const split = redactAlso('"airtime": 77123456 x 2, not 20.', red, []);
+    expect(split).not.toContain('77123456');
+    expect(isClean('"airtime": 77123456 x 2', red.map)).toBe(false);
+    expect(isClean(split, red.map)).toBe(true);
+  });
+
+  it("does not take the owner's own 'phone 2' for a placeholder left over", () => {
+    const said = 'Sold a phone 2 cover to 0771234567 for R50';
+    const red = redact(said, []);
+    expect(placeholderLeft({ items: [{ name: 'phone 2 cover' }] }, red.map, said)).toBeNull();
+    expect(placeholderLeft({ items: [{ name: 'airtime for Phone 1' }] }, red.map, said)).not.toBeNull();
   });
 });
