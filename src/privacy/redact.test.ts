@@ -602,3 +602,36 @@ describe('second review round 20 (EBE-11672)', () => {
     expect(redactAlso(`Customer ${name} owes 50`, red, [name])).toBe('Customer [PERSON_1] owes 50');
   });
 });
+
+describe('second review round 20, second pass (EBE-11672)', () => {
+  const clean = (said: string) => {
+    const red = redact(said, []);
+    return isClean(red.text, red.map, red.parts);
+  };
+
+  it('refuses a phone joined by any odd mark, even in a run with a sum', () => {
+    for (const said of [
+      "tel 263'77'123'4567",
+      'tel 263*77*123*4567',
+      'tel 263 + 77 + 123 + 4567',
+      'tel 263 ( 77 ) 123 4567',
+      'tel 263 = 77 = 123 = 4567',
+      'Total 500 + 700 = 1200, 263:77:123:4567 paid',
+      'tel 263:77:123:4567 = 500',
+      'tel 263--77--123--4567 = 5',
+    ]) {
+      expect(clean(said), said).toBe(false);
+    }
+  });
+
+  it('lets a sum written with space thousands through', () => {
+    expect(clean('Total 12 500 + 7 500 = 20 000')).toBe(true);
+  });
+
+  it('maps an eight-digit part of a ten-digit phone and any six-digit part of a country-code phone', () => {
+    const ten = redact('Sold 2 bread to 9876543210', []);
+    expect(redactAlso('Quantity 98765432 is too large', ten)).toBe('Quantity [PHONE_1] is too large');
+    const full = redact('Call 263771234567', []);
+    expect(redactAlso('Quantity 771234', full)).toBe('Quantity [PHONE_1]');
+  });
+});

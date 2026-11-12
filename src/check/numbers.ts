@@ -58,9 +58,16 @@ const OTHER_VERBS =
 /** Words for the customer, after which a verb's participle describes them ("à un client payé cash"). */
 const PERSON_WORDS = 'clients?|clientes?|customers?|amie?s?|voisine?s?|dame|dames|monsieur|madame|femme|homme|personne';
 /** Words before which "commande" or "paye" is a noun, not a verb ("sur commande", "avec la paye"). */
-const NOUN_LEADS = 'la|le|les|une|un|sur|en|de|du|par|ma|ta|sa|mon|ton|son|notre|votre|leur';
-/** Subject pronouns, after which "la", "le", "les" or "en" is an object pronoun before a verb ("il en commande"). */
-const SUBJECTS = 'je|tu|il|elle|on|nous|vous|ils|elles|qui';
+const NOUN_LEADS = 'une|un|sur|de|du|par|ma|ta|sa|mon|ton|son|notre|votre';
+/** The leads that are also object pronouns before a verb after a subject ("il en commande", "elle la paye"). */
+const OBJECT_LEADS = 'la|le|les|en|leur';
+/**
+ * A subject pronoun, not one after a preposition ("à elle en commande" is a noun), with "ne" or "n'" after it
+ * ("il n'en commande que 2"). Before an OBJECT_LEADS word it makes that word an object pronoun.
+ */
+const SUBJECT_BEFORE =
+  '(?:^|[^\\p{L}])(?<!(?:^|[^\\p{L}])(?:à|au|aux|pour|avec|de|par|sur|chez|sans)\\s+)' +
+  "(?:je|tu|il|elle|on|nous|vous|ils|elles|qui)\\s+(?:ne\\s+|n['’])?";
 /** The number words that are never an article. */
 const COUNT_WORDS = Object.keys(WORDS)
   .filter((w) => !ARTICLES.split('|').includes(w))
@@ -110,7 +117,7 @@ function parForOne(after: string, before: string, prefix: string, rest: string):
     const stop =
       `(?:${COUNT_WORDS})(?![\\p{L}])|(?<!(?:^|[^\\p{L}])(?:à|au|aux|pour|to|for|de|avec)\\s+)(?:${ARTICLES})(?![\\p{L}])|` +
       `(?<!(?:^|[^\\p{L}])(?:${PERSON_WORDS})\\s+)` +
-      `(?<!(?:^|[^\\p{L}])(?<!(?:^|[^\\p{L}])(?:${SUBJECTS})\\s+)(?:${NOUN_LEADS})\\s+)` +
+      `(?<!(?:^|[^\\p{L}])(?:${NOUN_LEADS})\\s+)(?<!(?:^|[^\\p{L}])(?<!${SUBJECT_BEFORE})(?:${OBJECT_LEADS})\\s+)` +
       `(?<!(?:^|[^\\p{L}])[dl]['’])(?:${OTHER_VERBS})(?![\\p{L}])`;
     const sale = new RegExp(
       `(?:^|[^\\p{L}])(?:vendu|vendus|vendue|vendues|vend|vends|sold|sell|sells)(?![\\p{L}])(?:(?!(?<![\\p{L}\\p{N}])(?:${stop}))[^.;\\d])*?(?<![\\p{L}\\p{N}])(?:\\d+(?:[ ,.]\\d{3})*|${NUMBER_WORDS})\\s+(?:de\\s+|d['’])?\\p{L}+\\s+(?:pour|for)\\s*$`,

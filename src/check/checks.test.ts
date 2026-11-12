@@ -365,3 +365,21 @@ describe('second review round 20 (EBE-11672)', () => {
     expect(amountsIn('Vendu sur commande 2 sacs pour 5000 par sac').find((a) => a.value === 5000)?.each).toBe(true);
   });
 });
+
+describe('second review round 20, second pass (EBE-11672)', () => {
+  it('keeps "commande" a noun after a stressed pronoun, and ends the clause after a negated object pronoun', () => {
+    for (const words of [
+      'Vendu à elle sur commande 2 sacs pour 5000 par sac',
+      'Vendu pour vous sur commande 2 sacs pour 5000 par sac',
+      'Vendu à elle en commande 2 sacs pour 5000 par sac',
+    ]) {
+      expect(amountsIn(words).find((a) => a.value === 5000)?.each, words).toBe(true);
+    }
+    for (const words of [
+      'Vendu au voisin, il n’en commande que 2 cartons pour 12 par carton',
+      'Vendu au voisin, il ne la paye pas, 2 cartons pour 12 par carton',
+    ]) {
+      expect(amountsIn(words).find((a) => a.value === 12)?.each, words).toBe(false);
+    }
+  });
+});

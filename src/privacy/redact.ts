@@ -151,10 +151,10 @@ const looksLikePhone = (s: string) => /\D/.test(s) || /^0/.test(s);
 /**
  * The placeholder of the owner's phone that these digits are, wholly or in part (six digits or more), or undefined.
  * The device prints a number it read as plain digits, and its number reader may split "077 123 4567" into 77123456.
- * A value of fewer than eleven plain digits with no 0 or + in front may be an amount ("25000000", "1500000000"), so it
- * matches whole, or in part only when the part has nine digits or more: "5000000" is another amount. A value of eleven
- * plain digits or more is a phone written with its country code ("263771234567"), which takes a part of eight digits
- * or more, the device's number ("77123456"), but not "500000" of a large amount.
+ * A value of fewer than ten plain digits with no 0 or + in front may be an amount ("25000000"), so it matches whole, or
+ * in part only when the part has nine digits or more: "5000000" is another amount. A value of ten plain digits may be
+ * an amount ("1500000000") or a phone ("9876543210"), so a part needs eight digits: "500000" is another amount. A value
+ * of eleven plain digits or more is a phone written with its country code ("263771234567"): any part of six or more.
  */
 function mappedPhone(digits: string, map: Record<string, string>): string | undefined {
   if (digits.length < 6) return undefined;
@@ -162,9 +162,10 @@ function mappedPhone(digits: string, map: Record<string, string>): string | unde
     const pd = phoneDigits(v);
     if (!k.startsWith('[PHONE_') || pd.length < 6) return false;
     if (pd === digits) return true;
-    // Plain digits: under eleven an amount ("1500000000"), from eleven a phone with its country code ("26771234567").
+    // Plain digits: under ten an amount ("25000000"), at ten an amount or a phone ("1500000000", "9876543210"), from
+    // eleven a phone with its country code ("26771234567").
     const plainDigits = /^[1-9]\d*$/.test(v.trim());
-    const floor = !plainDigits ? 6 : pd.length < 11 ? 9 : 8;
+    const floor = !plainDigits || pd.length >= 11 ? 6 : pd.length === 10 ? 8 : 9;
     return Math.min(pd.length, digits.length) >= floor && (pd.includes(digits) || digits.includes(pd));
   })?.[0];
 }
@@ -406,27 +407,59 @@ export function placeholderLeft(value: unknown, map: Record<string, string>, sai
  * list of amounts ("1500, 2000, 3000", "1,00 2,00"), a time range ("08:30-17:00") and a run of plain digits stay.
  */
 const TIME = /^\d{1,2}:\d{2}(?::\d{2})?(?:-\d{1,2}:\d{2}(?::\d{2})?)?$/;
+/** An amount in a sum: digits with space-separated thousands ("12 500") or cents ("2.50"). */
+const SUM_NUM = String.raw`(?:\d{1,3}(?:[^\S\n]\d{3})+|\d+(?:[.,]\d{1,2})?)`;
+/** A sum with its answer ("500 + 700 = 1200", "12000 / 4 = 3000", "2*500=1000"). */
+const SUM = new RegExp(String.raw`${SUM_NUM}(?:[^\S\n]*[-+*×/][^\S\n]*${SUM_NUM})+[^\S\n]*=[^\S\n]*${SUM_NUM}`, 'gu');
+/** True when a SUM's sides are equal to the cent, times and divide first; a sum that does not hold proves nothing. */
+function sumHolds(sum: string): boolean {
+  const [lhs, rhs] = sum.split('=');
+  const num = (x: string) => Number(x.replace(/\s+/g, '').replace(',', '.'));
+  const tokens = lhs.match(new RegExp(String.raw`${SUM_NUM}|[-+*×/]`, 'gu')) ?? [];
+  const terms: number[] = [];
+  let sign = 1;
+  let term: number | null = null;
+  let op = '';
+  for (const t of tokens) {
+    if (/^[-+]$/.test(t)) {
+      if (term !== null) terms.push(sign * term);
+      sign = t === '-' ? -1 : 1;
+      term = null;
+    } else if (/^[*×/]$/.test(t)) op = t;
+    else {
+      const v = num(t);
+      term = term === null ? v : op === '/' ? term / v : term * v;
+      op = '';
+    }
+  }
+  if (term !== null) terms.push(sign * term);
+  const total = terms.reduce((a, b) => a + b, 0);
+  return Number.isFinite(total) && Math.abs(total - num(rhs)) < 0.005;
+}
 function loosePhone(text: string): boolean {
   const bare = text.replace(/\[[A-Z]+_\d+\]/g, ' ');
-  const plain = (g: string) => PRICE.test(g) || DATE.test(g) || g.split('/').every((x) => TIME.test(x));
+  // A price, a date, a time, or a range of two amounts with no 0 in front ("100-150", "10-12").
+  const plain = (g: string) =>
+    PRICE.test(g) || DATE.test(g) || g.split('/').every((x) => TIME.test(x)) || /^[1-9]\d*-[1-9]\d*$/.test(g);
   for (const m of bare.matchAll(/(\+[^\S\n]*)?\d(?:[^\p{L}\p{N}\n]{0,3}\d)*/gu)) {
     if (digitCount(m[0]) < 8 || DATE.test(m[0].replace(/\s+/g, ''))) continue;
     // Amounts are never joined by an underscore, a semicolon or a bar.
     if (m[1] || /[_;|]/.test(m[0])) return true;
-    const groups = m[0].split(/[^\d.,/:-]+|,(?!\d{2}(?!\d))/).filter((g) => /\d/.test(g));
+    // A sum that holds ("500 + 700 = 1200", "12 500 + 7 500 = 20 000") is amounts; whatever else the run holds is read.
+    const run = m[0].replace(SUM, (sum) => (sumHolds(sum) ? ' ' : sum));
+    if (digitCount(run) < 8) continue;
+    const groups = run.split(/[^\d.,/:-]+|,(?!\d{2}(?!\d))/).filter((g) => /\d/.test(g));
     // A group opening with 0 is a phone's, unless it is a price, a date, a time or a two-digit day or count ("05") in
     // a run of fewer than ten digits: "06, 12, 34, 56, 78" is a phone written in pairs, "01, 02, 03, 04" four days.
     const pairsOk = digitCount(m[0]) < 10;
     if (groups.some((g) => /^0\d/.test(g) && !(pairsOk && /^0\d$/.test(g)) && !plain(g))) return true;
-    // Once prices, dates and times are out, digits joined by a dot, a slash, a colon or a double dash, with a group of
-    // one to three digits among them, are a phone written with odd marks ("263 . 77 . 123 . 4567", "263 : 77 : 123").
-    // A sum ("500 + 700 = 1200", "12000 / 4 = 3000") and a range ("100-150, 200-250") are not: a single dash, a plus
-    // or a times sign is no odd mark, and a run with an equals sign is sums.
-    if (m[0].includes('=')) continue;
-    let left = m[0];
+    // Once sums, prices, dates, times and ranges are out, digits joined by a mark other than a space or a comma, with a
+    // group of one to three digits among them, are a phone written with odd marks ("263 . 77 . 123 . 4567",
+    // "263 : 77 : 123", "263*77*123*4567").
+    let left = run;
     for (const g of groups) if (plain(g)) left = left.replace(g, ' ');
     const digits = left.match(/\d+/g) ?? [];
-    if (digitCount(left) >= 8 && /[./:]|\p{Pd}[^\S\n]*\p{Pd}/u.test(left) && digits.some((d) => d.length <= 3)) return true;
+    if (digitCount(left) >= 8 && /[^\d\s,]/.test(left) && digits.some((d) => d.length <= 3)) return true;
   }
   return false;
 }
