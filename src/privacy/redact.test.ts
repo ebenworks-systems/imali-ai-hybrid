@@ -174,6 +174,15 @@ describe('redact', () => {
     const map = { '[PHONE_1]': '0772123456' };
     expect(restore('phone 1 charger', map)).toBe('phone 1 charger');
     expect(restore('PHONE_1 and PHONE 1 and phone_1', map)).toBe('0772123456 and 0772123456 and 0772123456');
+    // A field that is nothing but the placeholder is one in any case.
+    expect(restore({ person: 'Phone 1', due: '[phone-1]', item: 'Phone1' }, map)).toEqual({
+      person: '0772123456',
+      due: '0772123456',
+      item: '0772123456',
+    });
+    expect(placeholderIn({ person: 'Phone 2' })).toBe('Phone 2');
+    expect(placeholderIn({ person: '[phone-2]' })).toBe('phone-2');
+    expect(placeholderIn({ items: [{ name: 'phone 2 charger' }] })).toBeNull();
   });
 
   it('looks for a leftover placeholder before the real values go back, so a number after "phone" is not one', () => {

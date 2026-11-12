@@ -156,7 +156,9 @@ export function redactAlso(text: string, red: Redacted, known: string[] = []): s
  */
 function bareForms(kind: string, n: string): RegExp[] {
   const edged = (body: string, flags: string) => new RegExp(`[[{<]?\\b${body}\\b[\\]}>]?`, flags);
-  return kind === 'PERSON' ? [edged(`${kind}[\\s_-]?${n}`, 'gi')] : [edged(`${kind}[\\s_-]?${n}`, 'g'), edged(`${kind}_${n}`, 'gi')];
+  if (kind === 'PERSON') return [edged(`${kind}[\\s_-]?${n}`, 'gi')];
+  // A field that is nothing but the placeholder ("Phone 1" as the person) is one in any case.
+  return [edged(`${kind}[\\s_-]?${n}`, 'g'), edged(`${kind}_${n}`, 'gi'), new RegExp(`^\\s*[[{<]?${kind}[\\s_-]?${n}[\\]}>]?\\s*$`, 'i')];
 }
 
 /** Put the real names back into anything the cloud returned. */
@@ -187,7 +189,13 @@ export function restore<T>(value: T, map: Record<string, string>): T {
  */
 export function placeholderIn(value: unknown): string | null {
   if (typeof value === 'string') {
-    return /\bPERSON[\s_-]?\d+/i.exec(value)?.[0] ?? /\bPHONE[\s_-]?\d+/.exec(value)?.[0] ?? /\bphone_\d+/i.exec(value)?.[0] ?? null;
+    return (
+      /\bPERSON[\s_-]?\d+/i.exec(value)?.[0] ??
+      /\bPHONE[\s_-]?\d+/.exec(value)?.[0] ??
+      /\bphone_\d+/i.exec(value)?.[0] ??
+      /^\s*[[{<]?(phone[\s_-]?\d+)[\]}>]?\s*$/i.exec(value)?.[1] ??
+      null
+    );
   }
   if (Array.isArray(value)) {
     for (const v of value) {

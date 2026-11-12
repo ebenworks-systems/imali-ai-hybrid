@@ -208,14 +208,22 @@ async function call<T>(
 async function cloudCall<T>(
   parts: Part[],
   ctx: Context,
-  opts: { language: string; image?: boolean; cloudModel: string; fallbackModel?: string; schema: Record<string, unknown> },
+  opts: {
+    language: string;
+    image?: boolean;
+    cloudModel: string;
+    fallbackModel?: string;
+    schema: Record<string, unknown>;
+    /** The first call's limit, when an earlier call already used part of the budget. */
+    timeout?: number;
+  },
 ): Promise<CallResult<T>> {
   const { fallbackModel, ...rest } = opts;
   const once = (cloudModel: string, timeout?: number) =>
     call<T>(parts, { ...rest, mode: InferenceMode.ONLY_IN_CLOUD, cloudModel, timeout });
   const t0 = performance.now();
   try {
-    return await once(opts.cloudModel);
+    return await once(opts.cloudModel, opts.timeout);
   } catch (e) {
     // The fallback is a second cloud call, so it needs what the first one needed: a connection and today's cap.
     if (!fallbackModel || fallbackModel === opts.cloudModel || cloudBlocked(ctx)) throw e;
@@ -240,21 +248,22 @@ function num(v: unknown): number {
 
 /**
  * What a model may write for a currency instead of its code, each as the whole value. Gemini Nano wrote "CFA" for
- * "5000 FCFA chacun" on 12 Nov 2026, which the currency check then failed against the XOF the words name. Only these
- * exact forms are read: "Tanzanian shillings" must not become KES, nor "Z$" or "Australian dollars" US dollars.
+ * "5000 FCFA chacun" on 12 Nov 2026, which the currency check then failed against the XOF the words name, and the
+ * read prompt itself says "shillings is KES" and "dollars is USD". Only these exact forms are read, so a country's
+ * name picks its own currency ("Tanzanian shillings" is TZS) and "Z$" or "Australian dollars" never become US dollars.
  */
 const CURRENCY_FORMS: [RegExp, string][] = [
-  [/^(?:F\s?CFA|CFA)$/i, 'XOF'],
-  [/^K\.?\s?Shs?\.?$/i, 'KES'],
-  [/^T\.?\s?Shs?\.?$/i, 'TZS'],
-  [/^U\.?\s?Shs?\.?$/i, 'UGX'],
+  [/^(?:francs?\s+)?F?\s?CFA(?:\s+francs?)?$/i, 'XOF'],
+  [/^(?:K\.?\s?Shs?\.?|(?:Kenyan\s+)?shillings?)$/i, 'KES'],
+  [/^(?:T\.?\s?Shs?\.?|Tanzanian\s+shillings?)$/i, 'TZS'],
+  [/^(?:U\.?\s?Shs?\.?|Ugandan\s+shillings?)$/i, 'UGX'],
   [/^ZiG$/i, 'ZWG'],
-  [/^(?:R|rands?)$/i, 'ZAR'],
-  [/^(?:Rs\.?|₹|rupees?)$/i, 'INR'],
-  [/^(?:\$|US\$)$/i, 'USD'],
+  [/^(?:R|(?:South\s+African\s+)?rands?)$/i, 'ZAR'],
+  [/^(?:Rs\.?|₹|(?:Indian\s+)?rupees?)$/i, 'INR'],
+  [/^(?:\$|US\$|(?:US\s?|American\s+)?dollars?)$/i, 'USD'],
   [/^(?:€|euros?)$/i, 'EUR'],
-  [/^(?:₦|naira)$/i, 'NGN'],
-  [/^(?:₵|cedis?)$/i, 'GHS'],
+  [/^(?:₦|(?:Nigerian\s+)?naira)$/i, 'NGN'],
+  [/^(?:(?:GH)?₵|(?:Ghanaian\s+)?cedis?)$/i, 'GHS'],
 ];
 
 /** The model's currency as a three-letter code; anything else is left to fail the currency check. */
@@ -454,6 +463,7 @@ export async function readReceipt(file: Blob, ctx: Context): Promise<Entry> {
   let first: { reading: Reading; check: CheckResult; where: Where } | null = null;
   const canCloud = cloudBlocked(ctx) === null;
   const deviceFirst = await deviceReads('en', true);
+  const tPhoto = performance.now();
   if (deviceFirst || canCloud) {
     try {
       ctx.onStep?.('Reading the receipt photo');
@@ -509,6 +519,8 @@ export async function readReceipt(file: Blob, ctx: Context): Promise<Entry> {
       image: true,
       cloudModel: first || cloudTried ? ctx.settings.secondOpinionModel : ctx.settings.cloudModel,
       fallbackModel: first ? ctx.settings.cloudModel : cloudTried ? undefined : ctx.settings.secondOpinionModel,
+      // After a first pass in the cloud, this call is that pass's fallback, so it gets what is left of the budget.
+      timeout: cloudTried ? Math.round(Math.max(PHOTO_BUDGET_MS - PHOTO_TIMEOUT_MS, PHOTO_BUDGET_MS - (performance.now() - tPhoto))) : undefined,
       schema: READING_SCHEMA,
     });
     const reading = tidyReading(r.value, ctx.shopCurrency);

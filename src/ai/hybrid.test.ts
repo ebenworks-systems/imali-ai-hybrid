@@ -319,6 +319,34 @@ describe('reading words', () => {
     expect(calls[2].timeout).toBe(30_000);
   });
 
+  it('checks a device reading that writes the currency as "dollars", as the prompt says, with no cloud call', async () => {
+    deviceAnswer = {
+      kind: 'sale',
+      items: [{ name: 'loaves', quantity: 2, unit_price: 3, line_total: 6 }],
+      total: 6,
+      currency: 'dollars',
+      person: '',
+      due: '',
+    };
+    const e = await readWords('Sold 2 loaves for 3 dollars each', ctx);
+    expect(e.reading.currency).toBe('USD');
+    expect(e.status).toBe('checked');
+    expect(calls.map((c) => c.mode)).toEqual(['only_on_device']);
+  });
+
+  it('puts the phone number back when the cloud writes its placeholder as "Phone 1"', async () => {
+    cloudAnswer = {
+      kind: 'sale',
+      items: [{ name: 'airtime', quantity: 1, unit_price: 20, line_total: 20 }],
+      total: 20,
+      currency: 'ZAR',
+      person: 'Phone 1',
+      due: '',
+    };
+    const e = await readWords('Nimemuuzia airtime ya R20 kwa 0772123456', { ...ctx, knownNames: [] });
+    expect(e.reading.person).toBe('0772123456');
+  });
+
   it('keeps a phone number the owner wrote after the word "phone" and checks the entry', async () => {
     cloudAnswer = {
       kind: 'sale',
@@ -385,9 +413,17 @@ describe('reading words', () => {
     expect(currencyCode('TShs', 'ZAR')).toBe('TZS');
     expect(currencyCode('USH', 'ZAR')).toBe('UGX');
     expect(currencyCode('UShs', 'ZAR')).toBe('UGX');
-    // A qualified name is not read as the plain one: it is left to fail the currency check.
-    expect(currencyCode('Tanzanian shillings', 'ZAR')).not.toBe('KES');
-    expect(currencyCode('Ugandan shillings', 'ZAR')).not.toBe('KES');
+    // The names the read prompt itself gives, and a country's name for its own currency.
+    expect(currencyCode('dollars', 'ZAR')).toBe('USD');
+    expect(currencyCode('US dollars', 'ZAR')).toBe('USD');
+    expect(currencyCode('shillings', 'ZAR')).toBe('KES');
+    expect(currencyCode('Kenyan shillings', 'ZAR')).toBe('KES');
+    expect(currencyCode('CFA francs', 'ZAR')).toBe('XOF');
+    expect(currencyCode('francs CFA', 'ZAR')).toBe('XOF');
+    expect(currencyCode('GH₵', 'ZAR')).toBe('GHS');
+    expect(currencyCode('Tanzanian shillings', 'ZAR')).toBe('TZS');
+    expect(currencyCode('Ugandan shillings', 'ZAR')).toBe('UGX');
+    // Another country's dollar is not read as US dollars: it is left to fail the currency check.
     expect(currencyCode('Australian dollars', 'ZAR')).not.toBe('USD');
     expect(currencyCode('Namibian dollars', 'ZAR')).not.toBe('USD');
     expect(currencyCode(null, 'ZAR')).toBe('ZAR');
@@ -440,6 +476,21 @@ describe('receipts', () => {
     expect(e.status).toBe('checked');
     expect(e.hops.at(-1)?.reason).toMatch(/cloud-model could not read the photo/);
     expect(cloudCallsToday()).toBe(2);
+  });
+
+  it('keeps the photo retry after a cloud first pass inside 180 seconds', async () => {
+    nanoPhotos = false;
+    downModels.add('cloud-model');
+    cloudAnswer = receipt;
+    downMs = 120_000;
+    await readReceipt(new Blob(['x']), ctx);
+    expect(calls.map((c) => c.timeout)).toEqual([120_000, 60_000]);
+    calls.length = 0;
+    downMs = 0;
+    await readReceipt(new Blob(['x']), ctx);
+    expect(calls[0].timeout).toBe(120_000);
+    expect(calls[1].timeout).toBeLessThanOrEqual(180_000 - 25);
+    expect(calls[1].timeout).toBeGreaterThan(170_000);
   });
 });
 
