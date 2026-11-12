@@ -338,3 +338,16 @@ describe('round 19 sale span (EBE-11663)', () => {
     expect(checkWords(right, words).ok).toBe(true);
   });
 });
+
+describe('round 19 third pass (EBE-11663)', () => {
+  it('reads "commande" and "paye" after an article or preposition as nouns, not a new clause', () => {
+    for (const words of [
+      'Vendu sur commande 2 sacs pour 5000 par sac',
+      'Vendu sur commande hier 2 sacs pour 5000 par sac',
+      'Vendu avec la paye 2 sacs pour 5000 par sac',
+    ]) {
+      expect(amountsIn(words).find((a) => a.value === 5000)?.each, words).toBe(true);
+    }
+    expect(amountsIn('Vendu à une cliente, commande 2 cartons pour 12 par carton').find((a) => a.value === 12)?.each).toBe(false);
+  });
+});

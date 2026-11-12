@@ -57,6 +57,8 @@ const OTHER_VERBS =
   'pris(?:e|es)?|arriv[eé](?:e|s|es)?|received|got|delivered|bought|ordered|paid';
 /** Words for the customer, after which a verb's participle describes them ("à un client payé cash"). */
 const PERSON_WORDS = 'clients?|clientes?|customers?|amie?s?|voisine?s?|dame|dames|monsieur|madame|femme|homme|personne';
+/** Words before which "commande" or "paye" is a noun, not a verb ("sur commande", "avec la paye"). */
+const NOUN_LEADS = 'la|le|les|une|un|sur|en|de|du|par|ma|ta|sa|mon|ton|son|notre|votre|leur';
 /** The number words that are never an article. */
 const COUNT_WORDS = Object.keys(WORDS)
   .filter((w) => !ARTICLES.split('|').includes(w))
@@ -100,10 +102,11 @@ function parForOne(after: string, before: string, prefix: string, rest: string):
     // An article stops the span like any count ("Vendu un sac, reçu 2 cartons"), except after a word such as "à",
     // where it is "a" or "one" of someone, not the count ("Vendu à une cliente, 2 sacs"). Another verb starts another
     // clause, so it stops the span too ("Vendu à une cliente, reçu hier 2 cartons pour 12 par carton", "achète 2 cartons"),
-    // except right after a word for the customer, where it describes them ("Vendu à un client payé cash, 2 sacs").
+    // except right after a word for the customer, where it describes them ("Vendu à un client payé cash, 2 sacs"), or
+    // after an article or a preposition, where it is a noun ("Vendu sur commande 2 sacs", "avec la paye").
     const stop =
       `(?:${COUNT_WORDS})(?![\\p{L}])|(?<!(?:^|[^\\p{L}])(?:à|au|aux|pour|to|for|de|avec)\\s+)(?:${ARTICLES})(?![\\p{L}])|` +
-      `(?<!(?:^|[^\\p{L}])(?:${PERSON_WORDS})\\s+)(?:${OTHER_VERBS})(?![\\p{L}])`;
+      `(?<!(?:^|[^\\p{L}])(?:${PERSON_WORDS}|${NOUN_LEADS})\\s+)(?<!(?:^|[^\\p{L}])[dl]['’])(?:${OTHER_VERBS})(?![\\p{L}])`;
     const sale = new RegExp(
       `(?:^|[^\\p{L}])(?:vendu|vendus|vendue|vendues|vend|vends|sold|sell|sells)(?![\\p{L}])(?:(?!(?<![\\p{L}\\p{N}])(?:${stop}))[^.;\\d])*?(?<![\\p{L}\\p{N}])(?:\\d+(?:[ ,.]\\d{3})*|${NUMBER_WORDS})\\s+(?:de\\s+|d['’])?\\p{L}+\\s+(?:pour|for)\\s*$`,
       'iu',

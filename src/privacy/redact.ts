@@ -13,11 +13,13 @@ export interface Redacted {
 }
 
 /**
- * Text with every digit in ASCII ("٠٧٧" is "077"), no zero-width or direction marks, and a minus sign or a middle dot written as a
+ * Text in its compatibility form (superscript, circled and full-width digits are plain digits), with every digit in
+ * ASCII ("٠٧٧" is "077"), no zero-width or direction marks, and a minus sign or a middle dot written as a
  * dash or a dot, so a phone written with them is found like any other.
  */
 export function normalise(text: string): string {
   return text
+    .normalize('NFKC')
     .replace(/[\u200B-\u200F\u061C\u202A-\u202E\u2060-\u2069\uFEFF\u00AD]/g, '')
     .replace(/[\u2212\u2796\uFE63\uFF0D]/g, '-')
     .replace(/[\u00B7\u2022\u2219\u30FB\uFF0E]/g, '.')
@@ -71,7 +73,8 @@ const isDay = (g: string) => /\/|(?:19|20)\d{2}/.test(g) && DATE.test(g);
  */
 function phoneIn(run: string): [number, number] | null {
   // The groups the run's spaces make, each with where it starts.
-  const groups = [...run.matchAll(/\S+/g)].map((m) => ({ text: m[0], at: m.index ?? 0 }));
+  // A dash, dot or slash standing alone between spaces is not a group, so it never stops a peel.
+  const groups = [...run.matchAll(/\S+/g)].map((m) => ({ text: m[0], at: m.index ?? 0 })).filter((g) => /\d/.test(g.text));
   const body = (a: number, b: number) => (a > b ? '' : run.slice(groups[a].at, groups[b].at + groups[b].text.length));
   const trim = (prices: boolean): [number, number] => {
     const peel = (g: string) => (prices && PRICE.test(g)) || isDay(g);
@@ -101,10 +104,13 @@ function phoneIn(run: string): [number, number] | null {
 function phonesIn(text: string): { phone: string; start: number; end: number }[] {
   const out: { phone: string; start: number; end: number }[] = [];
   for (const m of text.matchAll(PHONE)) {
-    // A run joined by a spaced dot or slash is one phone only when it opens like one; otherwise each piece is read alone,
-    // so "5000 / 10000" and "1500 • 2000 • 3000" stay and "12500 . 0771234567" gives the phone.
+    // A run joined by a spaced dot or slash is read in pieces only when each piece is an amount of four digits or more
+    // or a price and the run does not open like a phone, so "5000 / 10000" and "1500 • 2000 • 3000" stay and
+    // "12500 . 0771234567" gives the phone; "263 . 77 . 123 . 4567" is read whole.
     const pieces: [string, number][] = [];
-    if (/^[+(0]/.test(m[0]) || !m[0].match(SPACED_MARK)) pieces.push([m[0], 0]);
+    const split = m[0].split(SPACED_MARK);
+    const amounts = split.length > 1 && split.every((x) => digitCount(x) >= 4 || PRICE.test(x.trim()));
+    if (/^[+(0]/.test(m[0]) || !amounts) pieces.push([m[0], 0]);
     else {
       let from = 0;
       for (const sep of m[0].matchAll(SPACED_MARK)) {
@@ -145,8 +151,9 @@ const looksLikePhone = (s: string) => /\D/.test(s) || /^0/.test(s);
 /**
  * The placeholder of the owner's phone that these digits are, wholly or in part (six digits or more), or undefined.
  * The device prints a number it read as plain digits, and its number reader may split "077 123 4567" into 77123456.
- * A value taken out as plain digits with no 0 or + in front may be an amount ("25000000"), so it matches whole, or in
- * part only when the part has nine digits or more ("771234567" of "263771234567"): "5000000" is another amount.
+ * A value of fewer than ten plain digits with no 0 or + in front may be an amount ("25000000"), so it matches whole, or
+ * in part only when the part has nine digits or more: "5000000" is another amount. A phone written with its country
+ * code ("263771234567") still takes any part of six digits or more ("77123456").
  */
 function mappedPhone(digits: string, map: Record<string, string>): string | undefined {
   if (digits.length < 6) return undefined;
@@ -154,7 +161,7 @@ function mappedPhone(digits: string, map: Record<string, string>): string | unde
     const pd = phoneDigits(v);
     if (!k.startsWith('[PHONE_') || pd.length < 6) return false;
     if (pd === digits) return true;
-    const amount = /^[1-9]\d*$/.test(v.trim());
+    const amount = /^[1-9]\d*$/.test(v.trim()) && pd.length < 10;
     return (!amount || Math.min(pd.length, digits.length) >= 9) && (pd.includes(digits) || digits.includes(pd));
   })?.[0];
 }
@@ -397,12 +404,20 @@ export function placeholderLeft(value: unknown, map: Record<string, string>, sai
 const TIME = /^\d{1,2}:\d{2}(?::\d{2})?(?:-\d{1,2}:\d{2}(?::\d{2})?)?$/;
 function loosePhone(text: string): boolean {
   const bare = text.replace(/\[[A-Z]+_\d+\]/g, ' ');
+  const plain = (g: string) => PRICE.test(g) || DATE.test(g) || g.split('/').every((x) => TIME.test(x));
   for (const m of bare.matchAll(/(\+[^\S\n]*)?\d(?:[^\p{L}\p{N}\n]{0,3}\d)*/gu)) {
-    if (digitCount(m[0]) < 8) continue;
+    if (digitCount(m[0]) < 8 || DATE.test(m[0].replace(/\s+/g, ''))) continue;
     // Amounts are never joined by an underscore, a semicolon or a bar.
     if (m[1] || /[_;|]/.test(m[0])) return true;
     const groups = m[0].split(/[^\d.,/:-]+|,(?!\d{2}(?!\d))/).filter((g) => /\d/.test(g));
-    if (groups.some((g) => /^0\d/.test(g) && !PRICE.test(g) && !DATE.test(g) && !TIME.test(g))) return true;
+    // A group opening with 0 is a phone's, unless it is a price, a date, a time or a two-digit day or count ("05").
+    if (groups.some((g) => /^0\d/.test(g) && !/^0\d$/.test(g) && !plain(g))) return true;
+    // Once prices, dates and times are out, digits joined by a mark other than a space or a comma, with a group of one
+    // to three digits among them, are a phone written with odd marks ("263 . 77 . 123 . 4567", "263 : 77 : 123").
+    let left = m[0];
+    for (const g of groups) if (plain(g)) left = left.replace(g, ' ');
+    const digits = left.match(/\d+/g) ?? [];
+    if (digitCount(left) >= 8 && /[^\d\s,]/.test(left) && digits.some((d) => d.length <= 3)) return true;
   }
   return false;
 }

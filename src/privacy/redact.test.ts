@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isClean, placeholderIn, placeholderLeft, redact, redactAlso, restore } from './redact';
+import { isClean, normalise, placeholderIn, placeholderLeft, redact, redactAlso, restore } from './redact';
 
 describe('redact', () => {
   it('replaces a known customer and a name the book has not seen', () => {
@@ -266,7 +266,8 @@ describe('round 15 (EBE-11444)', () => {
     ]) {
       const red = redact(said, []);
       expect(red.text).not.toContain(phone);
-      expect(Object.values(red.map)).toContain(phone);
+      // The phone is kept in its normalised form, no-break spaces as plain spaces (round 19).
+      expect(Object.values(red.map)).toContain(normalise(phone));
       expect(isClean(said, red.map)).toBe(false);
       expect(isClean(red.text, red.map)).toBe(true);
     }
@@ -500,5 +501,58 @@ describe('round 19, second pass (EBE-11663)', () => {
       const red = redact(said, []);
       expect(isClean(red.text, red.map, red.parts), said).toBe(false);
     }
+  });
+});
+
+describe('round 19, third pass (EBE-11663)', () => {
+  it('reads a phone joined by spaced dots, slashes or bullets whole when a piece is short', () => {
+    for (const said of [
+      'tel 263 . 77 . 123 . 4567',
+      'tel 263 / 77 / 123 / 4567',
+      'tel 263 • 77 • 123 • 4567',
+      'tel 77 . 123 . 4567',
+      'tel 1 / 800 / 555 / 1234',
+      'tel 33 . 6 . 12 . 34 . 56 . 78',
+      'tel 263 . 77 . 123 . 45.67',
+    ]) {
+      expect(redact(said, []).text, said).toBe('tel [PHONE_1]');
+    }
+    expect(redact('Paid 50 . 077 . 123 . 4567', []).text).toBe('Paid [PHONE_1]');
+    expect(redact('Paid 5000 / 10000 for the cow', []).text).toBe('Paid 5000 / 10000 for the cow');
+  });
+
+  it('refuses a phone joined by colons or double dashes', () => {
+    for (const said of ['tel 263 : 77 : 123 : 4567', 'tel 263--77--123--4567']) {
+      const red = redact(said, []);
+      expect(isClean(red.text, red.map, red.parts), said).toBe(false);
+    }
+  });
+
+  it('keeps a range or list of prices joined by a lone mark', () => {
+    for (const said of [
+      'Price range 12.50 - 25.00',
+      'Sold 2 bread 100.00 - 250.00',
+      'Sold at 1.50 - 2.00 - 2.50 - 3.00',
+      'Prices 0.50 / 0.75 / 1.25 / 2.50',
+    ]) {
+      expect(redact(said, []).text, said).toBe(said);
+    }
+    expect(redact('Airtime 0771234567 - 5.00', []).text).toBe('Airtime [PHONE_1] - 5.00');
+  });
+
+  it('lets split time ranges and two-digit days through the wider check', () => {
+    for (const said of ['Open 08:30-12:00/14:00-17:00', 'Sold 05, 10, 15, 20 bread', 'Sold on 12 / 11 / 2026']) {
+      const red = redact(said, []);
+      expect(isClean(red.text, red.map, red.parts), said).toBe(true);
+    }
+  });
+
+  it('takes out a phone in superscript or circled digits', () => {
+    for (const said of ['tel ⁰⁷⁷¹²³⁴⁵⁶⁷', 'tel ①②③④⑤⑥⑦⑧⑨']) expect(redact(said, []).text, said).toBe('tel [PHONE_1]');
+  });
+
+  it("matches the device's eight-digit part of a phone written with its country code and no +", () => {
+    const own = redact('Call 263771234567', []);
+    expect(redactAlso('Quantity 77123456 is too large', own)).toBe('Quantity [PHONE_1] is too large');
   });
 });
