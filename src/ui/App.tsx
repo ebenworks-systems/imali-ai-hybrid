@@ -578,7 +578,7 @@ export function App() {
                   autoComplete="off"
                   spellCheck={false}
                 />
-                <div className="examples" aria-label="Examples">
+                <div className="examples" aria-label="Entries to try">
                   {WORD_EXAMPLES.map((x) => (
                     <button key={x.text} type="button" disabled={Boolean(busy)} onClick={() => void addWords(x.text)}>
                       {x.text}
@@ -634,7 +634,7 @@ export function App() {
                     </span>
                   </button>
                   <button className="ghost" type="button" disabled={Boolean(busy)} onClick={() => void sampleReceipt()}>
-                    Use a sample receipt
+                    Try a supplier's receipt
                   </button>
                   {busy && (
                     <span className="busy" role="status">
@@ -661,7 +661,7 @@ export function App() {
                   onKeyDown={(e) => onEnter(e, () => void ask(question))}
                   autoComplete="off"
                 />
-                <div className="examples" aria-label="Example questions">
+                <div className="examples" aria-label="Questions to try">
                   {QUESTION_EXAMPLES.map((q) => (
                     <button
                       key={q}
@@ -708,7 +708,7 @@ export function App() {
             <p className="sub">What the model read, what the checks found and where each step ran.</p>
             {!slip && (
               <p className="empty">
-                <b>Nothing read yet.</b> Pick an example or type a sale to see how it is read and checked.
+                <b>Nothing read yet.</b> Pick an entry above or type a sale to see how it is read and checked.
               </p>
             )}
             {slip?.type === 'entry' && <EntrySlip entry={slip.entry} onRemove={(id) => void remove(id)} />}
