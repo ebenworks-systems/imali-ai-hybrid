@@ -68,18 +68,32 @@ function itemWords(text: string): Set<string> {
  * price ("2 cartons, 12 par carton, 6000 F"), so the amount must be priced: a currency between it and "par", a
  * currency stuck to it, or "à" or "at" before it.
  */
-function parForOne(after: string, before: string, prefix: string): boolean {
+function parForOne(after: string, before: string, prefix: string, rest: string): boolean {
   const m = new RegExp(`^\\s*(${CURRENCY}\\s*)?par\\s+(\\p{L}+)(?![\\p{L}\\p{N}_'’])`, 'iu').exec(after);
   if (!m) return false;
+  const word = m[2].toLowerCase();
+  const stem = word.replace(/[sx]$/, '');
+  const isItem = stem.length >= 3 && itemWords(before).has(stem);
   // NUMBER takes a short word typed before the digits into its match ("at 5000"), so read it there too.
   // A bare "a" is not taken: in "il y a 12 par carton" it is the verb, and a pack size is not a price.
-  // "pour" and "for" are left out: "Commande pour 12 par carton" is a pack size, so they need a currency after the amount.
   const priced = PRICE_MARK.test(prefix) || /^at$/iu.test(prefix);
-  if (!m[1] && !priced && !/(?:^|[^\p{L}])(?:à|at)\s*$/iu.test(before)) return false;
-  const word = m[2].toLowerCase();
-  if (PAR_UNITS.test(word)) return true;
-  const stem = word.replace(/[sx]$/, '');
-  return stem.length >= 3 && itemWords(before).has(stem);
+  if (!m[1] && !priced && !/(?:^|[^\p{L}])(?:à|at)\s*$/iu.test(before)) {
+    // A bare "pour" or "for" prices the amount only when "par" names the item counted before it and no currency
+    // comes later: "Vendu 2 sacs pour 5000 par sac" is a price for one, "Commande pour 12 par carton, 6000 F" and
+    // "Livré pour 3 par personne" are not.
+    const pour = /^(?:pour|for)$/iu.test(prefix) || /(?:^|[^\p{L}])(?:pour|for)\s*$/iu.test(before);
+    return pour && isItem && !hasCurrency(rest.slice(m[0].length));
+  }
+  return PAR_UNITS.test(word) || isItem;
+}
+
+/** True when the text names a currency anywhere ("6000 F", "R30", "KSh 300", "francs"). */
+function hasCurrency(text: string): boolean {
+  return (
+    currencyIn(text) !== null ||
+    new RegExp(`(?<!\\p{L})${CURRENCY}(?!\\p{L})`, 'iu').test(text) ||
+    /[$€£₹₦₵]/u.test(text)
+  );
 }
 
 /** Every number written in digits, with whether the text marks it as a price for one unit. */
@@ -93,7 +107,12 @@ export function amountsIn(text: string): Amount[] {
     const each =
       m[0].trimStart().startsWith('@') ||
       new RegExp(`^\\s*${CURRENCY_WORD}(?:each|per|apiece|a piece|chacun|chacune|l['’]unit[ée]|la pièce|kila mmoja|kila moja)(?![\\p{L}\\p{N}_])`, 'iu').test(after) ||
-      parForOne(after, text.slice(0, index), m[0].slice(0, m[0].search(/\d/)).replace(/^@\s*/, '').trim()) ||
+      parForOne(
+        after,
+        text.slice(0, index),
+        m[0].slice(0, m[0].search(/\d/)).replace(/^@\s*/, '').trim(),
+        text.slice(index + m[0].length),
+      ) ||
       /@\s*$/.test(before);
     out.push({ value, each, index });
   }

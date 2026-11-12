@@ -23,6 +23,23 @@ const NOT_NAMES = new Set(
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const NOT_NAMES_LOWER = new Set([...NOT_NAMES].map((w) => w.toLowerCase()));
+
+/**
+ * The parts of each known full name, to take out on their own when the full name is written in a way its pattern
+ * misses ("thandi. moyo", "thandi__moyo", "thandi - moyo"). A part shorter than three letters ("de" in "Awa de
+ * Souza") or a shop word stays, so a sentence's own words are not taken.
+ */
+function nameParts(names: string[]): string[] {
+  const parts = new Set<string>();
+  for (const name of names) {
+    const words = name.trim().split(/\s+/);
+    if (words.length < 2) continue;
+    for (const w of words) if (w.length >= 3 && !NOT_NAMES_LOWER.has(w.toLowerCase())) parts.add(w);
+  }
+  return [...parts];
+}
+
 /**
  * A pattern that finds `text` with no letter touching it, accented letters counted as letters. "Tom" is not found in
  * "tomorrow", nor "Juma" in "Ijumaa" (Kiswahili for Friday), nor "Phone" inside a "[PHONE_1]" placeholder; "Aimé" is
@@ -56,6 +73,10 @@ export function redact(text: string, known: string[] = []): Redacted {
   for (const name of [...known].filter(Boolean).sort((a, b) => b.length - a.length)) {
     if (wholeWord(name).test(out)) swap(name);
   }
+  // Then each part of a known full name still in the text, each with its own placeholder.
+  for (const part of nameParts(known)) {
+    if (wholeWord(part).test(out)) swap(part);
+  }
   // Capitalised words not at the start of a sentence and not a known shop word.
   for (const m of out.matchAll(/(?<![.!?]\s|^)\b([A-Z][a-zà-ÿ'’-]{1,})(?:\s([A-Z][a-zà-ÿ'’-]{1,}))?/gu)) {
     const words = [m[1], m[2]].filter(Boolean) as string[];
@@ -86,7 +107,7 @@ export function redactAlso(text: string, red: Redacted, known: string[] = []): s
   let out = text;
   // One list, longest first, so "Thandi Moyo" goes before "Thandi" whichever list each came from.
   const names = new Map<string, string>();
-  for (const n of [...Object.values(red.map), ...known]) if (n) names.set(n.toLowerCase(), n);
+  for (const n of [...Object.values(red.map), ...known, ...nameParts(known)]) if (n) names.set(n.toLowerCase(), n);
   for (const name of [...names.values()].sort((a, b) => b.length - a.length)) {
     if (!wholeWord(name).test(out)) continue;
     let key = Object.entries(red.map).find(([, v]) => v.toLowerCase() === name.toLowerCase())?.[0];

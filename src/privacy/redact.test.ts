@@ -66,6 +66,23 @@ describe('redact', () => {
   it('keeps two names apart across a full stop', () => {
     const r = redact('Paid Thandi. Moyo owes R30', ['Thandi Moyo']);
     expect(Object.values(r.map)).not.toContain('Thandi Moyo');
+    expect(r.text).not.toMatch(/thandi|moyo/i);
+  });
+
+  it('takes out each part of a known full name the full-name pattern misses', () => {
+    for (const text of ['Sold to thandi. moyo', 'Sold 2 Cokes to thandi__moyo', 'Paid Thandi. Moyo is late', 'Sold to thandi - moyo']) {
+      const r = redact(text, ['Thandi Moyo']);
+      expect(r.text).not.toMatch(/thandi|moyo/i);
+      expect(isClean(r.text, r.map)).toBe(true);
+    }
+    // A short particle in a name is not taken out on its own.
+    expect(redact('Vendu 2 sacs de riz', ['Awa de Souza']).text).toBe('Vendu 2 sacs de riz');
+  });
+
+  it('takes out each part of a known full name from the device\'s own lines too', () => {
+    const r = redact('Sold 2 Cokes', []);
+    const out = redactAlso('Check moyo. thandi line', r, ['Thandi Moyo']);
+    expect(out).not.toMatch(/thandi|moyo/i);
   });
 
   it('ignores a blank known name', () => {

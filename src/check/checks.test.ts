@@ -95,6 +95,10 @@ describe('numbers', () => {
     expect(each('Sold 2 sodas 50 Sh each', 50)).toBe(true);
     expect(each('Vendu 2 sacs 5000 frs chacun', 5000)).toBe(true);
     expect(each('Vendu 2 sacs pour 5000 FCFA par sac', 5000)).toBe(true);
+    // A bare "pour" prices the amount when "par" names the item counted before and no currency comes later.
+    expect(each('Vendu 2 sacs pour 5000 par sac', 5000)).toBe(true);
+    expect(each('Sold 2 bags for 5000 par bag', 5000)).toBe(true);
+    expect(each('Vendu 2 cartons pour 12 par carton, 6000 F', 12)).toBe(false);
     expect(each('Commande pour 12 par carton, 6000 F', 12)).toBe(false);
     expect(each('Livré pour 3 par personne', 3)).toBe(false);
     expect(each('Vendu 2 cartons, il y a  12 par carton, 6000 F', 12)).toBe(false);
