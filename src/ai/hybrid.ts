@@ -1,6 +1,7 @@
 // Hybrid inference with Firebase AI Logic. Every reading starts on the device with Gemini Nano; the cloud model is
 // asked only when the device cannot read the input (its language, a voice note, no on-device model) or when the
-// device's reading fails the book's checks. Names and phone numbers are removed before anything leaves the device.
+// device's reading fails the book's checks. Names and phone numbers the redactor finds (src/privacy/redact.ts: names in the
+// book and capitalised names) are swapped for placeholders before the words leave the device.
 
 import { getGenerativeModel, InferenceMode, type Part } from 'firebase/ai';
 import { ai, cloudConfigured, type Settings } from './firebase';

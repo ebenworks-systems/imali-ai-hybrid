@@ -538,7 +538,7 @@ export function App() {
         </div>
         <p>
           Type a sale, show it a supplier's receipt or ask who owes you. {DEVICE_MODEL} reads it in Chrome, plain code checks every sum,
-          and the cloud model is asked only when a check fails or this device cannot read it, with names taken out first.
+          and the cloud model is asked only when a check fails or this device cannot read it, with the names it finds taken out first.
         </p>
       </section>
 
