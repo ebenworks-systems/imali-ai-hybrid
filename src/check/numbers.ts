@@ -62,12 +62,13 @@ const NOUN_LEADS = 'une|un|sur|de|du|par|ma|ta|sa|mon|ton|son|notre|votre';
 /** The leads that are also object pronouns before a verb after a subject ("il en commande", "elle la paye"). */
 const OBJECT_LEADS = 'la|le|les|en|leur';
 /**
- * A subject pronoun, not one after a preposition ("à elle en commande" is a noun), with "ne" or "n'" after it
- * ("il n'en commande que 2"). Before an OBJECT_LEADS word it makes that word an object pronoun.
+ * A subject pronoun, not one after a preposition ("à elle en commande" is a noun), with "ne" or "n'" and an indirect
+ * pronoun after it ("il n'en commande que 2", "il lui en commande", "elle me le commande"). Before an OBJECT_LEADS word
+ * it makes that word an object pronoun.
  */
 const SUBJECT_BEFORE =
   '(?:^|[^\\p{L}])(?<!(?:^|[^\\p{L}])(?:à|au|aux|pour|avec|de|par|sur|chez|sans)\\s+)' +
-  "(?:je|tu|il|elle|on|nous|vous|ils|elles|qui)\\s+(?:ne\\s+|n['’])?";
+  "(?:je|tu|il|elle|on|nous|vous|ils|elles|qui)\\s+(?:ne\\s+|n(?:['’]|\\s+))?(?:(?:me|te|se|nous|vous|lui|leur)\\s+|[mts]['’])?";
 /** The number words that are never an article. */
 const COUNT_WORDS = Object.keys(WORDS)
   .filter((w) => !ARTICLES.split('|').includes(w))

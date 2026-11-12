@@ -635,3 +635,28 @@ describe('second review round 20, second pass (EBE-11672)', () => {
     expect(redactAlso('Quantity 771234', full)).toBe('Quantity [PHONE_1]');
   });
 });
+
+describe('second review round 20, third pass (EBE-11672)', () => {
+  const clean = (said: string) => {
+    const red = redact(said, []);
+    return isClean(red.text, red.map, red.parts);
+  };
+
+  it("refuses a phone whose local part looks like a range", () => {
+    for (const said of ['Call 212)555-1234', 'Call [263] 771-2345', 'Call 263 # 771-2345', 'Call 263, 771-2345']) {
+      expect(clean(said), said).toBe(false);
+    }
+    expect(clean('1500 + 2000 = 3500, 150-200')).toBe(true);
+  });
+
+  it('lets a sum written with comma thousands through', () => {
+    for (const said of ['Total 1,500 + 2,000 = 3,500', 'Total 2 * 1,250 = 2,500']) expect(clean(said), said).toBe(true);
+  });
+
+  it('reads a long chain of sums without an answer quickly', () => {
+    const start = Date.now();
+    clean('1+'.repeat(20000) + '1');
+    clean('1 000 + '.repeat(5000));
+    expect(Date.now() - start).toBeLessThan(2000);
+  });
+});

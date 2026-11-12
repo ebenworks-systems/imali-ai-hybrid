@@ -408,13 +408,19 @@ export function placeholderLeft(value: unknown, map: Record<string, string>, sai
  */
 const TIME = /^\d{1,2}:\d{2}(?::\d{2})?(?:-\d{1,2}:\d{2}(?::\d{2})?)?$/;
 /** An amount in a sum: digits with space-separated thousands ("12 500") or cents ("2.50"). */
-const SUM_NUM = String.raw`(?:\d{1,3}(?:[^\S\n]\d{3})+|\d+(?:[.,]\d{1,2})?)`;
-/** A sum with its answer ("500 + 700 = 1200", "12000 / 4 = 3000", "2*500=1000"). */
-const SUM = new RegExp(String.raw`${SUM_NUM}(?:[^\S\n]*[-+*×/][^\S\n]*${SUM_NUM})+[^\S\n]*=[^\S\n]*${SUM_NUM}`, 'gu');
+const SUM_NUM = String.raw`(?:\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d{1,3}(?:[^\S\n]\d{3})+|\d+(?:[.,]\d{1,2})?)`;
+/**
+ * A sum with its answer ("500 + 700 = 1200", "12000 / 4 = 3000", "2*500=1000", "1,500 + 2,000 = 3,500"), of at most 30
+ * steps. It never starts inside a number or a chain, so a long chain with no answer is read once, not from every number.
+ */
+const SUM = new RegExp(
+  String.raw`(?<!\d[.,]?|\d[^\S\n]*[-+*×/][^\S\n]*)${SUM_NUM}(?:[^\S\n]*[-+*×/][^\S\n]*${SUM_NUM}){1,30}[^\S\n]*=[^\S\n]*${SUM_NUM}`,
+  'gu',
+);
 /** True when a SUM's sides are equal to the cent, times and divide first; a sum that does not hold proves nothing. */
 function sumHolds(sum: string): boolean {
   const [lhs, rhs] = sum.split('=');
-  const num = (x: string) => Number(x.replace(/\s+/g, '').replace(',', '.'));
+  const num = (x: string) => Number(x.replace(/\s+/g, '').replace(/,(?=\d{3}(?!\d))/g, '').replace(',', '.'));
   const tokens = lhs.match(new RegExp(String.raw`${SUM_NUM}|[-+*×/]`, 'gu')) ?? [];
   const terms: number[] = [];
   let sign = 1;
@@ -438,9 +444,10 @@ function sumHolds(sum: string): boolean {
 }
 function loosePhone(text: string): boolean {
   const bare = text.replace(/\[[A-Z]+_\d+\]/g, ' ');
-  // A price, a date, a time, or a range of two amounts with no 0 in front ("100-150", "10-12").
-  const plain = (g: string) =>
-    PRICE.test(g) || DATE.test(g) || g.split('/').every((x) => TIME.test(x)) || /^[1-9]\d*-[1-9]\d*$/.test(g);
+  const plain = (g: string) => PRICE.test(g) || DATE.test(g) || g.split('/').every((x) => TIME.test(x));
+  // A range of two amounts with no 0 in front ("100-150", "10-12"), which is plain only in a run of such things:
+  // in "212)555-1234" the "555-1234" is a phone's local part.
+  const range = (g: string) => /^[1-9]\d*-[1-9]\d*$/.test(g);
   for (const m of bare.matchAll(/(\+[^\S\n]*)?\d(?:[^\p{L}\p{N}\n]{0,3}\d)*/gu)) {
     if (digitCount(m[0]) < 8 || DATE.test(m[0].replace(/\s+/g, ''))) continue;
     // Amounts are never joined by an underscore, a semicolon or a bar.
@@ -456,8 +463,9 @@ function loosePhone(text: string): boolean {
     // Once sums, prices, dates, times and ranges are out, digits joined by a mark other than a space or a comma, with a
     // group of one to three digits among them, are a phone written with odd marks ("263 . 77 . 123 . 4567",
     // "263 : 77 : 123", "263*77*123*4567").
+    const ranges = groups.every((g) => plain(g) || range(g));
     let left = run;
-    for (const g of groups) if (plain(g)) left = left.replace(g, ' ');
+    for (const g of groups) if (plain(g) || (ranges && range(g))) left = left.replace(g, ' ');
     const digits = left.match(/\d+/g) ?? [];
     if (digitCount(left) >= 8 && /[^\d\s,]/.test(left) && digits.some((d) => d.length <= 3)) return true;
   }

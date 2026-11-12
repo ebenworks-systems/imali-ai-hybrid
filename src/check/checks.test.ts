@@ -383,3 +383,16 @@ describe('second review round 20, second pass (EBE-11672)', () => {
     }
   });
 });
+
+describe('second review round 20, third pass (EBE-11672)', () => {
+  it('ends the clause after an indirect pronoun or an "n" without its apostrophe', () => {
+    for (const words of [
+      'Vendu au voisin, il lui en commande 2 cartons pour 12 par carton',
+      'Vendu au voisin, il ne m’en commande que 2 cartons pour 12 par carton',
+      'Vendu, elle me le commande 2 cartons pour 12 par carton',
+      'Vendu au voisin, il n en commande que 2 cartons pour 12 par carton',
+    ]) {
+      expect(amountsIn(words).find((a) => a.value === 12)?.each, words).toBe(false);
+    }
+  });
+});
