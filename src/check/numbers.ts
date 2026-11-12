@@ -51,10 +51,10 @@ const PRICE_MARK = new RegExp(`^(?:@\\s*)?(?:${CURRENCY}|R|Rs|KSh|Ksh|\\$|€|£
 
 const NUMBER_WORDS = Object.keys(WORDS).join('|');
 
-/** The words the owner used for items: the word right after a count ("3 sacs", "trois bouteilles de lait", "des mangues"). */
+/** The words the owner used for items: the word right after a count ("3 sacs", "trois bouteilles de lait"). */
 function itemWords(text: string): Set<string> {
   const out = new Set<string>();
-  const re = new RegExp(`(?<![\\p{L}\\p{N}])(?:\\d+|${NUMBER_WORDS}|des|quelques)\\s+(?:de\\s+|d['’])?(\\p{L}+)`, 'giu');
+  const re = new RegExp(`(?<![\\p{L}\\p{N}])(?:\\d+|${NUMBER_WORDS})\\s+(?:de\\s+|d['’])?(\\p{L}+)`, 'giu');
   for (const m of text.matchAll(re)) {
     // A word after "par" is not an item ("par jour" in "3000 F par jour").
     if (/par\s+$/i.test(text.slice(0, m.index))) continue;
@@ -71,8 +71,9 @@ function itemWords(text: string): Set<string> {
 function parForOne(after: string, before: string, prefix: string): boolean {
   const m = new RegExp(`^\\s*(${CURRENCY}\\s*)?par\\s+(\\p{L}+)(?![\\p{L}\\p{N}_'’])`, 'iu').exec(after);
   if (!m) return false;
-  // NUMBER takes a short word typed before the digits into its match ("a 5000", "pour 5000"), so read it there too.
-  const priced = PRICE_MARK.test(prefix) || /^(?:à|a|at|pour|for)$/iu.test(prefix);
+  // NUMBER takes a short word typed before the digits into its match ("pour 5000", "at 5000"), so read it there too.
+  // A bare "a" is not taken: in "il y a 12 par carton" it is the verb, and a pack size is not a price.
+  const priced = PRICE_MARK.test(prefix) || /^(?:at|pour|for)$/iu.test(prefix);
   if (!m[1] && !priced && !/(?:^|[^\p{L}])(?:à|a|at|pour|for)\s*$/iu.test(before)) return false;
   const word = m[2].toLowerCase();
   if (PAR_UNITS.test(word)) return true;

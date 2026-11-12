@@ -32,6 +32,7 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  */
 export function wholeWord(text: string, flags = 'iu'): RegExp {
   // A full name may be written as one handle ("thandi_moyo", "thandi.moyo") or with more than one space.
+  if (!text.trim()) return new RegExp('(?!)', flags); // a blank name matches nothing
   const body = escape(text.trim()).split(/\s+/).join('[\\s_.]+');
   return new RegExp(`(?<!\\p{L})${body}(?!\\p{L}|_\\d+\\])`, flags);
 }

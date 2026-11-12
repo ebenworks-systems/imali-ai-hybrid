@@ -63,6 +63,12 @@ describe('redact', () => {
     }
   });
 
+  it('ignores a blank known name', () => {
+    const r = redact('Sold 2 Cokes to Thandi', [' ', '']);
+    expect(r.text).not.toContain('[PERSON_1]2');
+    expect(r.text).toContain('Sold 2 Cokes');
+  });
+
   it('takes the longest known name out of the problem lines first', () => {
     const red = redact('Sold 3 loaves to Thandi', ['Thandi', 'Thandi Moyo']);
     const line = redactAlso('"loaves for Thandi Moyo" has a quantity of 0.', red, ['Thandi', 'Thandi Moyo']);
