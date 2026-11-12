@@ -35,6 +35,8 @@ interface AskLog {
 const CURRENCIES: [string, string][] = [
   ['ZAR', 'Rand (R)'],
   ['KES', 'Kenyan shilling (KSh)'],
+  ['TZS', 'Tanzanian shilling (TSh)'],
+  ['UGX', 'Ugandan shilling (USh)'],
   ['USD', 'US dollar (US$)'],
   ['XOF', 'CFA franc (CFA)'],
   ['INR', 'Rupee (₹)'],
@@ -153,9 +155,9 @@ function Hops({ hops }: { hops: Hop[] }) {
   );
 }
 
-function EntrySlip({ entry, onRemove }: { entry: Entry; onRemove: (id: string) => void }) {
+function EntrySlip({ entry, currency, onRemove }: { entry: Entry; currency: string; onRemove: (id: string) => void }) {
   const r = entry.reading;
-  const check = entry.source === 'receipt' ? checkReceipt(r) : checkWords(r, entry.words);
+  const check = entry.source === 'receipt' ? checkReceipt(r) : checkWords(r, entry.words, currency);
   const showPassed = entry.status === 'checked' || entry.status === 'checked-in-cloud';
   return (
     <div className="slip reveal" key={entry.id}>
@@ -711,7 +713,7 @@ export function App() {
                 <b>Nothing read yet.</b> Pick an entry above or type a sale to see how it is read and checked.
               </p>
             )}
-            {slip?.type === 'entry' && <EntrySlip entry={slip.entry} onRemove={(id) => void remove(id)} />}
+            {slip?.type === 'entry' && <EntrySlip entry={slip.entry} currency={currency} onRemove={(id) => void remove(id)} />}
             {slip?.type === 'answer' && <AnswerSlip slip={slip} currency={currency} />}
           </div>
         </section>

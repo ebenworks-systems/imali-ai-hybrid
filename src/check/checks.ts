@@ -51,7 +51,7 @@ function shapeAndSums(r: Reading, problems: string[], passed: string[]) {
 }
 
 /** Checks a reading of the owner's own words against those words. */
-export function checkWords(r: Reading, words: string): CheckResult {
+export function checkWords(r: Reading, words: string, shopCurrency?: string): CheckResult {
   const problems: string[] = [];
   const passed: string[] = [];
   shapeAndSums(r, problems, passed);
@@ -91,7 +91,7 @@ export function checkWords(r: Reading, words: string): CheckResult {
   }
   if (grounded) passed.push('Every number comes from the words');
 
-  const named = currencyIn(words);
+  const named = currencyIn(words, shopCurrency);
   if (named && named !== r.currency) problems.push(`The words name ${named}, but the reading says ${r.currency}.`);
   else if (named) passed.push(`Currency ${named} matches the words`);
 

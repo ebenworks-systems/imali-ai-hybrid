@@ -2,6 +2,7 @@
 // responseConstraint, the cloud model as responseJsonSchema, so both return the same shape.
 
 import { INTENTS, KINDS, PERIODS } from '../book/types';
+import { plainShillings } from '../check/numbers';
 
 export const READING_SCHEMA = {
   type: 'object',
@@ -53,7 +54,7 @@ export function readPrompt(words: string, shopCurrency: string): string {
 ${KIND_RULES}
 items: each thing in the message, with quantity, unit_price (the price of one) and line_total (quantity x unit_price).
 total: the sum of the line totals.
-currency: a 3-letter code. R or rand is ZAR, KSh, Kenyan shillings or shillings is KES, TSh or Tanzanian shillings is TZS, USh or Ugandan shillings is UGX, Rs or rupees is INR, CFA is XOF, $ or dollars is USD. If the message names no currency, use ${shopCurrency}.
+currency: a 3-letter code. R or rand is ZAR, KSh or Kenyan shillings is KES, TSh or Tanzanian shillings is TZS, USh or Ugandan shillings is UGX, shillings alone is ${plainShillings(shopCurrency)}, Rs or rupees is INR, CFA is XOF, $ or dollars is USD. If the message names no currency, use ${shopCurrency}.
 person: the customer or supplier the message names, or "" if none. due: when they will pay, as the message says it, or "".
 Use only the numbers in the message. "X each" or "@ X" means X is the unit_price.
 

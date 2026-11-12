@@ -259,3 +259,42 @@ describe('checkReceipt', () => {
     expect(checkReceipt(reading).problems).toContain('The lines add up to 45, but the total says 50.');
   });
 });
+
+describe('plain shillings follow the shop (EBE-11626)', () => {
+  it("reads plain shillings as the shop's own when the shop keeps shillings, and as KES elsewhere", () => {
+    const words = 'Sold 2 sodas for 5000 shillings';
+    expect(currencyIn(words, 'TZS')).toBe('TZS');
+    expect(currencyIn(words, 'UGX')).toBe('UGX');
+    expect(currencyIn(words, 'KES')).toBe('KES');
+    expect(currencyIn(words, 'ZAR')).toBe('KES');
+    expect(currencyIn(words)).toBe('KES');
+    // A country named in the words still wins over the shop.
+    expect(currencyIn('Paid 300 Kenyan shillings', 'TZS')).toBe('KES');
+    expect(currencyIn('Paid 300 Kenya shillings', 'UGX')).toBe('KES');
+    expect(currencyIn('Sold 2 sodas for 1500 Tanzanian shillings', 'UGX')).toBe('TZS');
+  });
+
+  it('fails a TZS shop\'s "5000 shillings" booked in KES and passes it in TZS', () => {
+    const words = 'Sold 2 sodas for 5000 shillings';
+    const sodas = { items: [{ name: 'soda', quantity: 2, unit_price: 2500, line_total: 5000 }], total: 5000 };
+    expect(checkWords(r({ ...sodas, currency: 'KES' }), words, 'TZS').ok).toBe(false);
+    expect(checkWords(r({ ...sodas, currency: 'TZS' }), words, 'TZS').ok).toBe(true);
+    expect(checkWords(r({ ...sodas, currency: 'UGX' }), words, 'UGX').ok).toBe(true);
+    expect(checkWords(r({ ...sodas, currency: 'KES' }), words, 'ZAR').ok).toBe(true);
+  });
+});
+
+describe('round 16 sale span (EBE-11626)', () => {
+  it('reads a French price for one after an article that is not the count', () => {
+    for (const words of ['Vendu à une cliente, 2 sacs pour 5000 par sac', 'Vendu à un client 2 sacs pour 5000 par sac']) {
+      expect(amountsIn(words).find((a) => a.value === 5000)?.each).toBe(true);
+      const right = r({ items: [{ name: 'sac', quantity: 2, unit_price: 5000, line_total: 10000 }], total: 10000, currency: 'XOF' });
+      expect(checkWords(right, words).ok).toBe(true);
+      const wrong = r({ items: [{ name: 'sac', quantity: 2, unit_price: 2500, line_total: 5000 }], total: 5000, currency: 'XOF' });
+      expect(checkWords(wrong, words).ok).toBe(false);
+    }
+    // An article that counts a unit is still the sale's count, so 12 is a pack size, not a price.
+    const pack = amountsIn('Vendu un sac, reçu 2 cartons pour 12 par carton').find((a) => a.value === 12);
+    expect(pack?.each).toBe(false);
+  });
+});

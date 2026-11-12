@@ -287,3 +287,78 @@ describe('round 15 (EBE-11444)', () => {
     expect(placeholderLeft({ items: [{ name: 'Phone 2' }] }, red.map, 'Sold Phone 2 to 0771234567 for R50')).toBeNull();
   });
 });
+
+describe('round 16 (EBE-11626)', () => {
+  it('takes out a phone written one space after a price, and keeps the price', () => {
+    for (const [said, phone, kept] of [
+      ['Airtime 5.00 0771234567', '0771234567', '5.00'],
+      ['Sold bread 12.50 0771234567', '0771234567', '12.50'],
+      ['Call 0771234567 12.50 owed', '0771234567', '12.50'],
+    ]) {
+      const red = redact(said, []);
+      expect(red.text).not.toContain(phone);
+      expect(red.text).toContain(kept);
+      expect(Object.values(red.map)).toContain(phone);
+      expect(isClean(said, red.map)).toBe(false);
+      expect(isClean(red.text, red.map)).toBe(true);
+    }
+    expect(redact('Sold 3 loaves 12.50 25.00 37.50', []).text).toBe('Sold 3 loaves 12.50 25.00 37.50');
+  });
+
+  it('takes out a phone written with two spaces or spaced dashes, and a +263 (0) number whole', () => {
+    for (const [said, phone] of [
+      ['Call 077  123 4567 later', '077  123 4567'],
+      ['Call 077 - 123 - 4567 later', '077 - 123 - 4567'],
+      ['Call +263 (0)77 123 4567 later', '+263 (0)77 123 4567'],
+    ]) {
+      const red = redact(said, []);
+      expect(red.text).toBe('Call [PHONE_1] later');
+      expect(red.map['[PHONE_1]']).toBe(phone);
+      expect(isClean(said, red.map)).toBe(false);
+    }
+    expect(redact('Thandi owes R30. 0771234567', []).text).toBe('[PERSON_1] owes R30. [PHONE_1]');
+  });
+
+  it('keeps an eight-digit amount next to money, a thousands amount and an ISO date', () => {
+    for (const said of [
+      'Sold a cow for UGX 25 000 000',
+      'Sold a cow for 25000000 shillings',
+      'Achat 12.500.000 F',
+      'Sold a cow for 25 000 000',
+      'Paid on 2026-11-12',
+      'Away 12/11-15/11',
+    ]) {
+      const red = redact(said, []);
+      expect(Object.keys(red.map).filter((k) => k.startsWith('[PHONE_'))).toEqual([]);
+      expect(isClean(red.text, red.map)).toBe(true);
+    }
+    // An eight-digit phone with no money near it still goes.
+    expect(redact('Pay Awa 70 12 34 56 tomorrow', []).map['[PHONE_1]']).toBe('70 12 34 56');
+    expect(redact('Call 70123456 for the bread', []).map['[PHONE_1]']).toBe('70123456');
+  });
+
+  it("takes the owner's phone out of a problem line and keeps the price beside it", () => {
+    const red = redact('Airtime 5.00 0771234567', []);
+    expect(redactAlso('The price 5.00 0771234567 is not in the words.', red)).toBe('The price 5.00 [PHONE_1] is not in the words.');
+    expect(redactAlso('The quantity 771234567 is not in the words.', red)).toBe('The quantity [PHONE_1] is not in the words.');
+  });
+
+  it('keeps a short amount typed one space before a phone that opens with 0', () => {
+    const red = redact('Sold 2 bread 30 0771234567', []);
+    expect(red.text).toBe('Sold 2 bread 30 [PHONE_1]');
+    expect(red.map['[PHONE_1]']).toBe('0771234567');
+    // A country code with no + stays with its number.
+    expect(redact('Call 263 77 123 4567', []).map['[PHONE_1]']).toBe('263 77 123 4567');
+  });
+
+  it("does not turn an item the owner calls 'Phone 1' into the phone number on restore", () => {
+    const said = 'Sold Phone 1 to 0771234567 for R50';
+    const red = redact(said, []);
+    expect(red.map['[PHONE_1]']).toBe('0771234567');
+    const back = restore({ items: [{ name: 'Phone 1' }], person: '[PHONE_1]' }, red.map, said);
+    expect(back.items[0].name).toBe('Phone 1');
+    expect(back.person).toBe('0771234567');
+    // Without the owner's words, a whole-field "Phone 1" is still the placeholder rewritten.
+    expect(restore({ person: 'Phone 1' }, red.map).person).toBe('0771234567');
+  });
+});

@@ -85,7 +85,7 @@ export function fmt(amount: number, currency: string): string {
   const sign = amount < 0 ? '-' : '';
   const n = Math.abs(amount);
   const body = Number.isInteger(n) ? n.toLocaleString('en-GB') : n.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const mark: Record<string, string> = { ZAR: 'R', USD: 'US$', KES: 'KSh ', INR: '₹', XOF: 'CFA ', EUR: '€', NGN: '₦', GHS: 'GH₵', ZWG: 'ZiG ' };
+  const mark: Record<string, string> = { ZAR: 'R', USD: 'US$', KES: 'KSh ', TZS: 'TSh ', UGX: 'USh ', INR: '₹', XOF: 'CFA ', EUR: '€', NGN: '₦', GHS: 'GH₵', ZWG: 'ZiG ' };
   return `${sign}${mark[currency] ?? currency + ' '}${body}`;
 }
 

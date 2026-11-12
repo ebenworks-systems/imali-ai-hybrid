@@ -13,20 +13,85 @@ export interface Redacted {
 }
 
 /**
- * Digits with at most one separator between them (a space of any kind but a new line, a dash, a dot or a slash), after
- * an optional "+" and "(area code)". `isPhone` decides whether such a run is a phone number.
+ * Digits with at most one separator between them: a run of spaces of any kind but a new line, a dash with or without
+ * spaces round it ("077 - 123 - 4567"), or a bare dot or slash. It may open with "+", "(area code)" or "+263 (0)".
+ * `phoneIn` decides which part of such a run is a phone number.
  */
-const PHONE = /\+?(?:\(\d{1,4}\)[^\S\n]?)?\d(?:(?:[^\S\n]|\p{Pd}|[./])?\d){5,}/gu;
+const PHONE = /(?:\+\d{1,4}[^\S\n]*\(0\)[^\S\n]*|\+?\(\d{1,4}\)[^\S\n]*|\+)?\d(?:(?:[^\S\n]+|[^\S\n]*\p{Pd}[^\S\n]*|[./])?\d){5,}/gu;
 const digitCount = (s: string) => s.replace(/\D/g, '').length;
 
+/** A date ("12/11/2026", "2026-11-12") or two joined by a dash ("12/11-15/11"). */
+const DAY = String.raw`(?:\d{1,2}[./]\d{1,2}(?:[./]\d{2,4})?|\d{1,2}-\d{1,2}-\d{2,4}|\d{4}[./-]\d{1,2}[./-]\d{1,2})`;
+const DATE = new RegExp(String.raw`^${DAY}(?:[^\S\n]*\p{Pd}[^\S\n]*${DAY})?$`, 'u');
+
+/** A price with cents ("12.50", "5,00"), which never starts or ends a phone written with spaces. */
+const PRICE = /^\d+[.,]\d{2}$/;
+
+/** Thousands grouped by a space or a dot ("25 000 000", "12.500.000"). */
+const THOUSANDS = /^[1-9]\d{0,2}(?:(?:[^\S\n]|\.)\d{3})+$/u;
+
+/** A money mark right before an amount ("UGX 25 000 000", "R 12 500 000") or a currency word right after it. */
+const CODES = 'USD|ZAR|KES|INR|XOF|XAF|ZWG|ZWL|NGN|GHS|EUR|GBP|TZS|UGX|RWF|MWK|ZMW|BWP|MZN|ETB|EGP|MAD';
+const MONEY_BEFORE = new RegExp(String.raw`(?:(?<![\p{L}])(?:${CODES}|K?Shs?|TShs?|UShs?|Rs\.?|R|F|FCFA|CFA)|[$€£₹₦₵])[^\S\n]*$`, 'u');
+const MONEY_AFTER = [
+  /^[^\S\n]*(?:shillings?|francs?|frs?|FCFA|CFA|rands?|dollars?|naira|cedis?|rupees?|euros?|bob)(?![\p{L}])/iu,
+  new RegExp(String.raw`^[^\S\n]*(?:${CODES}|F)(?![\p{L}\p{N}])`, 'u'),
+];
+
 /**
- * Eight digits or more (Burkina Faso, Mali, Niger, Togo and Botswana numbers have eight), except a date ("12/11/2026")
- * and a list of prices ("12.50 25.00 37.50").
+ * The phone number inside one PHONE run, as [start, end] within the run, or null when the run holds none. Eight digits
+ * or more (Burkina Faso, Mali, Niger, Togo and Botswana numbers have eight), once these are left out:
+ * - a price with cents at either end ("Airtime 5.00 0771234567"), or a whole list of them ("12.50 25.00 37.50");
+ * - a short amount before a number that opens with its trunk 0 ("Sold 2 bread 30 0771234567");
+ * - a date or two ("12/11/2026", "2026-11-12", "12/11-15/11");
+ * - with `around`, an amount: a run with no leading 0, + or bracket that has a money mark next to it ("UGX 25 000 000",
+ *   "25000000 shillings"), or is eight digits grouped in thousands ("25 000 000").
  */
-const isPhone = (s: string) =>
-  digitCount(s) >= 8 &&
-  !/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/.test(s) &&
-  !(/\s/.test(s) && /\d\.\d{2}(?!\d)/.test(s));
+function phoneIn(run: string, around?: { before: string; after: string }): [number, number] | null {
+  // The groups the run's spaces make, each with where it starts.
+  const groups = [...run.matchAll(/\S+/g)].map((m) => ({ text: m[0], at: m.index ?? 0 }));
+  let first = 0;
+  let last = groups.length - 1;
+  const body = (a: number, b: number) => (a > b ? '' : run.slice(groups[a].at, groups[b].at + groups[b].text.length));
+  while (first <= last && PRICE.test(groups[first].text)) first++;
+  while (last >= first && PRICE.test(groups[last].text)) last--;
+  if (first > last) return null;
+  if (first < last && /^\d{1,3}$/.test(groups[first].text) && /^0/.test(groups[first + 1].text)) {
+    const rest = body(first + 1, last);
+    if (digitCount(rest) >= 8) first++;
+  }
+  const s = body(first, last);
+  if (digitCount(s) < 8 || DATE.test(s)) return null;
+  if (around && /^[1-9]/.test(s)) {
+    const before = around.before + run.slice(0, groups[first].at);
+    const after = run.slice(groups[last].at + groups[last].text.length) + around.after;
+    if (MONEY_BEFORE.test(before) || MONEY_AFTER.some((re) => re.test(after))) return null;
+    if (digitCount(s) === 8 && THOUSANDS.test(s)) return null;
+  }
+  return [groups[first].at, groups[last].at + groups[last].text.length];
+}
+
+/** Each PHONE run in `text` with the phone inside it, if any: [run start, phone start, phone end] in `text`. */
+function phonesIn(text: string): { phone: string; start: number; end: number }[] {
+  const out: { phone: string; start: number; end: number }[] = [];
+  for (const m of text.matchAll(PHONE)) {
+    const at = m.index ?? 0;
+    const hit = phoneIn(m[0], { before: text.slice(Math.max(0, at - 8), at), after: text.slice(at + m[0].length, at + m[0].length + 12) });
+    if (hit) out.push({ phone: m[0].slice(hit[0], hit[1]), start: at + hit[0], end: at + hit[1] });
+  }
+  return out;
+}
+
+/** Replace each phone in `text` with what `swap` gives for it. */
+function replacePhones(text: string, swap: (phone: string) => string): string {
+  let out = '';
+  let from = 0;
+  for (const p of phonesIn(text)) {
+    out += text.slice(from, p.start) + swap(p.phone);
+    from = p.end;
+  }
+  return out + text.slice(from);
+}
 
 /** A phone number's digits with the leading + and zeros gone, so "0771234567" and the device's 771234567 match. */
 const phoneDigits = (s: string) => s.replace(/\D/g, '').replace(/^0+/, '');
@@ -35,7 +100,7 @@ const phoneDigits = (s: string) => s.replace(/\D/g, '').replace(/^0+/, '');
  * A phone written the way a phone is ("077 123 4567", "+263...", "(077) 123-4567", "0771234567"). A plain run with no
  * leading 0 ("1500000000") is how the device prints an amount, so it is not one.
  */
-const looksLikePhone = (s: string) => isPhone(s) && (/\D/.test(s) || /^0/.test(s));
+const looksLikePhone = (s: string) => /\D/.test(s) || /^0/.test(s);
 
 /**
  * The placeholder of the owner's phone that these digits are, wholly or in part (six digits or more), or undefined.
@@ -145,10 +210,9 @@ export function redact(text: string, known: string[] = []): Redacted {
     if (!NOT_NAMES.has(m[1])) swap(m[1]);
   }
   let p = 0;
-  out = out.replace(PHONE, (match) => {
-    if (!isPhone(match)) return match; // a date, a list of prices or a short amount
+  out = replacePhones(out, (phone) => {
     const key = `[PHONE_${++p}]`;
-    map[key] = match;
+    map[key] = phone;
     return key;
   });
   return { text: out, map, parts: [...parts] };
@@ -183,14 +247,16 @@ export function redactAlso(text: string, red: Redacted, known: string[] = []): s
   // A phone number the device read as a quantity or a total comes back printed as plain digits ("771234567" for the
   // owner's "0771234567", or part of it): it takes the owner's placeholder. Anything else written as a phone gets one of
   // its own; a plain amount ("1500000000") stays, since the second opinion needs it.
-  out = out.replace(PHONE, (match) => {
-    const key = mappedPhone(phoneDigits(match), red.map);
+  out = replacePhones(out, (phone) => {
+    const key = mappedPhone(phoneDigits(phone), red.map);
     if (key) return key;
-    if (!looksLikePhone(match)) return match;
+    if (!looksLikePhone(phone)) return phone;
     const own = `[PHONE_${Object.keys(red.map).filter((k) => k.startsWith('[PHONE_')).length + 1}]`;
-    red.map[own] = match;
+    red.map[own] = phone;
     return own;
   });
+  // A shorter run that is part of the owner's phone ("123 4567" of "077 123 4567").
+  out = out.replace(PHONE, (match) => mappedPhone(phoneDigits(match), red.map) ?? match);
   out = out.replace(/(?<!\d)\d{6,}(?!\d)/g, (run) => mappedPhone(phoneDigits(run), red.map) ?? run);
   red.parts = [...parts];
   return out;
@@ -202,15 +268,18 @@ export function redactAlso(text: string, red: Redacted, known: string[] = []): s
  * so PERSON is matched in any case; "phone 1" is an ordinary phrase ("phone 1 charger"), so any other kind is matched
  * only in capitals or with its underscore.
  */
-function bareForms(kind: string, n: string): RegExp[] {
+function bareForms(kind: string, n: string, said = ''): RegExp[] {
   const edged = (body: string, flags: string) => new RegExp(`[[{<]?\\b${body}\\b[\\]}>]?`, flags);
   if (kind === 'PERSON') return [edged(`${kind}[\\s_-]?${n}`, 'gi')];
-  // A field that is nothing but the placeholder ("Phone 1" as the person) is one in any case.
-  return [edged(`${kind}[\\s_-]?${n}`, 'g'), edged(`${kind}_${n}`, 'gi'), new RegExp(`^\\s*[[{<]?${kind}[\\s_-]?${n}[\\]}>]?\\s*$`, 'i')];
+  const forms = [edged(`${kind}[\\s_-]?${n}`, 'g'), edged(`${kind}_${n}`, 'gi')];
+  // A field that is nothing but the placeholder ("Phone 1" as the person) is one in any case, unless the owner wrote
+  // those words themselves ("Sold Phone 1 to ..."), when it is their item.
+  if (!new RegExp(`\\b${kind}[\\s_-]?${n}\\b`, 'i').test(said)) forms.push(new RegExp(`^\\s*[[{<]?${kind}[\\s_-]?${n}[\\]}>]?\\s*$`, 'i'));
+  return forms;
 }
 
-/** Put the real names back into anything the cloud returned. */
-export function restore<T>(value: T, map: Record<string, string>): T {
+/** Put the real names back into anything the cloud returned. `said` is the owner's own text that was redacted. */
+export function restore<T>(value: T, map: Record<string, string>, said = ''): T {
   if (typeof value === 'string') {
     let s: string = value;
     for (const [k, v] of Object.entries(map)) {
@@ -218,14 +287,14 @@ export function restore<T>(value: T, map: Record<string, string>): T {
       // A cloud model sometimes drops the brackets or swaps them, as gemini-3.5-flash-lite did for the Kiswahili
       // example on 12 Nov 2026 ("PERSON_1").
       const m = /^\[([A-Z]+)_(\d+)\]$/.exec(k);
-      if (m) for (const re of bareForms(m[1], m[2])) s = s.replace(re, () => v);
+      if (m) for (const re of bareForms(m[1], m[2], said)) s = s.replace(re, () => v);
     }
     return s as T;
   }
-  if (Array.isArray(value)) return value.map((v) => restore(v, map)) as T;
+  if (Array.isArray(value)) return value.map((v) => restore(v, map, said)) as T;
   if (value && typeof value === 'object') {
     const o: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) o[k] = restore(v, map);
+    for (const [k, v] of Object.entries(value)) o[k] = restore(v, map, said);
     return o as T;
   }
   return value;
@@ -270,7 +339,7 @@ export function placeholderLeft(value: unknown, map: Record<string, string>, sai
     const n = /\d+/.exec(hit)?.[0];
     return !!n && `[PHONE_${n}]` in map && !new RegExp(`\\bphone[\\s_-]?${n}\\b`, 'i').test(said);
   };
-  return placeholderIn(restore(value, Object.fromEntries(Object.keys(map).map((k) => [k, '']))), phoneSent);
+  return placeholderIn(restore(value, Object.fromEntries(Object.keys(map).map((k) => [k, ''])), said), phoneSent);
 }
 
 /**
@@ -283,7 +352,7 @@ export function isClean(text: string, map: Record<string, string>, parts: string
   const whole = Object.entries(map).filter(([k]) => !skip.has(k)).map(([, v]) => v);
   return (
     // No number written as a phone, and no run of the owner's phone digits, whole or in part.
-    ![...text.matchAll(PHONE)].some((m) => looksLikePhone(m[0])) &&
+    !phonesIn(text).some((p) => looksLikePhone(p.phone)) &&
     ![...text.matchAll(/\d{6,}/g)].some((m) => mappedPhone(phoneDigits(m[0]), map)) &&
     whole.every((v) => !wholeWord(v).test(text)) &&
     [...whole, ...known].every((v) => !splitName(v)?.test(text))

@@ -50,6 +50,12 @@ const PAR_UNITS =
 const PRICE_MARK = new RegExp(`^(?:@\\s*)?(?:${CURRENCY}|R|Rs|KSh|Ksh|\\$|€|£|₹)$`, 'iu');
 
 const NUMBER_WORDS = Object.keys(WORDS).join('|');
+const ARTICLES = 'un|une|a|an';
+/** The number words that are never an article. */
+const COUNT_WORDS = Object.keys(WORDS)
+  .filter((w) => !ARTICLES.split('|').includes(w))
+  .join('|');
+const escapeRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** The words the owner used for items: the word right after a count ("3 sacs", "trois bouteilles de lait"). */
 function itemWords(text: string): Set<string> {
@@ -86,8 +92,11 @@ function parForOne(after: string, before: string, prefix: string, rest: string):
     // sacs pour 5000 par sac" is a price; in "Vendu 2 sacs, reçu 2 cartons pour 12 par carton" the 2 sacs are the sale's
     // count, so 12 is not).
     const lead = /^(?:pour|for)$/iu.test(prefix) ? `${before} ${prefix}` : before;
+    // An article stops the span only when it counts a unit or the item "par" names ("Vendu un sac, reçu 2 cartons"),
+    // not when it is "a" or "one" of something else ("Vendu à une cliente, 2 sacs").
+    const stop = `(?:${COUNT_WORDS})(?![\\p{L}])|(?:${ARTICLES})\\s+(?:de\\s+|d['’])?(?:${PAR_UNITS.source.slice(1, -1)}|${escapeRe(stem)}[sx]?)(?![\\p{L}])`;
     const sale = new RegExp(
-      `(?:^|[^\\p{L}])(?:vendu|vendus|vendue|vendues|vend|vends|sold|sell|sells)(?![\\p{L}])(?:(?!(?<![\\p{L}\\p{N}])(?:${NUMBER_WORDS})(?![\\p{L}]))[^.;\\d])*?(?<![\\p{L}\\p{N}])(?:\\d+(?:[ ,.]\\d{3})*|${NUMBER_WORDS})\\s+(?:de\\s+|d['’])?\\p{L}+\\s+(?:pour|for)\\s*$`,
+      `(?:^|[^\\p{L}])(?:vendu|vendus|vendue|vendues|vend|vends|sold|sell|sells)(?![\\p{L}])(?:(?!(?<![\\p{L}\\p{N}])(?:${stop}))[^.;\\d])*?(?<![\\p{L}\\p{N}])(?:\\d+(?:[ ,.]\\d{3})*|${NUMBER_WORDS})\\s+(?:de\\s+|d['’])?\\p{L}+\\s+(?:pour|for)\\s*$`,
       'iu',
     );
     const later = rest.slice(m[0].length);
@@ -147,6 +156,9 @@ export function mentionsEach(text: string): boolean {
   return EACH.test(text) || /@\s*\d/.test(text);
 }
 
+const SHILLING_SHOPS = ['KES', 'TZS', 'UGX'];
+const SHILLINGS = 'shillings';
+
 const MARKS: [RegExp, string][] = [
   // Case matters for TSh and USh, so "ush" or "tsh" in a sentence is not a currency.
   [/\bT[Ss]hs?\b|\bTZS\b/, 'TZS'],
@@ -154,7 +166,8 @@ const MARKS: [RegExp, string][] = [
   // A country's shillings before the plain word, as the model's currency name reads them (hybrid.ts CURRENCY_FORMS).
   [/\bTanzanian?\s+shillings?\b/i, 'TZS'],
   [/\bUgandan?\s+shillings?\b/i, 'UGX'],
-  [/\bKshs?\b|\bKES\b|\bshillings?\b/i, 'KES'],
+  [/\bKshs?\b|\bKES\b|\bKenyan?\s+shillings?\b/i, 'KES'],
+  [/\bshillings?\b/i, SHILLINGS],
   [/₹|\bRs\.?\s?\d|\bINR\b|\brupees?\b/i, 'INR'],
   [/\bF\s?CFA\b|\bCFA\b|\bXOF\b/i, 'XOF'],
   [/\bZAR\b|\brands?\b|(?:^|[\s(])R\s?\d/i, 'ZAR'],
@@ -165,9 +178,17 @@ const MARKS: [RegExp, string][] = [
   [/€|\bEUR\b|\beuros?\b/i, 'EUR'],
 ];
 
-/** The currency the words name, if they name one. */
-export function currencyIn(text: string): string | null {
-  for (const [re, code] of MARKS) if (re.test(text)) return code;
+/**
+ * The currency plain "shillings" means: the shop's own when the shop keeps Kenyan, Tanzanian or Ugandan shillings, so a
+ * Dar es Salaam owner's "5000 shillings" is TZS, and Kenyan shillings in any other shop.
+ */
+export function plainShillings(shopCurrency?: string): string {
+  return shopCurrency && SHILLING_SHOPS.includes(shopCurrency) ? shopCurrency : 'KES';
+}
+
+/** The currency the words name, if they name one. Plain "shillings" follows the shop (plainShillings). */
+export function currencyIn(text: string, shopCurrency?: string): string | null {
+  for (const [re, code] of MARKS) if (re.test(text)) return code === SHILLINGS ? plainShillings(shopCurrency) : code;
   return null;
 }
 

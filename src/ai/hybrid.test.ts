@@ -537,3 +537,21 @@ describe('round 14 prompt (EBE-11444)', () => {
     expect(p).toMatch(/Ugandan shillings is UGX/);
   });
 });
+
+describe('plain shillings follow the shop (EBE-11626)', () => {
+  it("tells the model plain shillings are the shop's own when the shop keeps shillings", async () => {
+    const { readPrompt } = await import('./prompts');
+    expect(readPrompt('Sold 2 sodas for 5000 shillings', 'TZS')).toMatch(/shillings alone is TZS/);
+    expect(readPrompt('Sold 2 sodas for 5000 shillings', 'UGX')).toMatch(/shillings alone is UGX/);
+    expect(readPrompt('Sold 2 sodas for 5000 shillings', 'ZAR')).toMatch(/shillings alone is KES/);
+    expect(readPrompt('Sold 2 sodas for 5000 shillings', 'TZS')).not.toMatch(/or shillings is KES/);
+  });
+
+  it("reads the model's plain shillings as the shop's own shillings", () => {
+    expect(currencyCode('shillings', 'TZS')).toBe('TZS');
+    expect(currencyCode('Shilling', 'UGX')).toBe('UGX');
+    expect(currencyCode('shillings', 'KES')).toBe('KES');
+    expect(currencyCode('shillings', 'ZAR')).toBe('KES');
+    expect(currencyCode('Kenyan shillings', 'TZS')).toBe('KES');
+  });
+});

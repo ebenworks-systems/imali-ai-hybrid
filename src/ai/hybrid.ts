@@ -6,6 +6,7 @@ import { getGenerativeModel, InferenceMode, type Part } from 'firebase/ai';
 import { ai, cloudConfigured, type Settings } from './firebase';
 import { askPrompt, QUERY_SCHEMA, READING_SCHEMA, readPrompt, receiptPrompt, receiptSecondOpinionPrompt, secondOpinionPrompt } from './prompts';
 import { checkReceipt, checkWords, type CheckResult } from '../check/checks';
+import { plainShillings } from '../check/numbers';
 import { isClean, placeholderLeft, redact, redactAlso, restore } from '../privacy/redact';
 import type { Entry, Hop, Query, Reading, Where } from '../book/types';
 import { INTENTS, KINDS, PERIODS } from '../book/types';
@@ -254,7 +255,7 @@ function num(v: unknown): number {
  */
 const CURRENCY_FORMS: [RegExp, string][] = [
   [/^(?:francs?\s+)?F?\s?CFA(?:\s+francs?)?$/i, 'XOF'],
-  [/^(?:K\.?\s?Shs?\.?|(?:Kenyan?\s+)?shillings?)$/i, 'KES'],
+  [/^(?:K\.?\s?Shs?\.?|Kenyan?\s+shillings?)$/i, 'KES'],
   [/^(?:T\.?\s?Shs?\.?|Tanzanian?\s+shillings?)$/i, 'TZS'],
   [/^(?:U\.?\s?Shs?\.?|Ugandan?\s+shillings?)$/i, 'UGX'],
   [/^ZiG$/i, 'ZWG'],
@@ -271,6 +272,8 @@ export function currencyCode(v: string | null, shopCurrency: string): string {
   if (!v) return shopCurrency;
   const t = v.trim();
   for (const [re, code] of CURRENCY_FORMS) if (re.test(t)) return code;
+  // Plain "shillings" is the shop's own when it keeps shillings, as the read prompt says.
+  if (/^shillings?$/i.test(t)) return plainShillings(shopCurrency);
   // A code with a gloss after it ("USD (US dollars)") is that code; anything else is kept whole: cut to three letters,
   // "Australian dollars" would pass the check as "AUS".
   return /^([A-Z]{3})(?![A-Za-z])/.exec(t)?.[1] ?? t.toUpperCase();
@@ -339,11 +342,11 @@ async function cloudRead(
     schema: READING_SCHEMA,
   });
   const tidied = tidyReading(r.value, ctx.shopCurrency);
-  const reading = restore(tidied, red.map);
+  const reading = restore(tidied, red.map, words);
   const n = Object.keys(red.map).length;
   // The owner sees the exact words that left the device, placeholders and all; the reading above has the names back.
   const sent = `the words “${red.text}”${problems ? ' and the checks that failed' : ''}, with ${n === 0 ? 'no names to remove' : n === 1 ? '1 name removed' : `${n} names removed`}`;
-  const check = checkWords(reading, words);
+  const check = checkWords(reading, words, ctx.shopCurrency);
   const left = placeholderLeft(tidied, red.map, words);
   if (left) {
     check.ok = false;
@@ -374,7 +377,7 @@ export async function finishWords(entry: Entry, ctx: Context): Promise<Entry> {
   const words = entry.words;
   const onDevice = await deviceReads(entry.language);
   let first: { reading: Reading; check: CheckResult } | null = entry.reading.items.length
-    ? { reading: entry.reading, check: checkWords(entry.reading, words) }
+    ? { reading: entry.reading, check: checkWords(entry.reading, words, ctx.shopCurrency) }
     : null;
 
   if (!first && onDevice) {
@@ -387,7 +390,7 @@ export async function finishWords(entry: Entry, ctx: Context): Promise<Entry> {
         schema: READING_SCHEMA,
       });
       const reading = tidyReading(r.value, ctx.shopCurrency);
-      first = { reading, check: checkWords(reading, words) };
+      first = { reading, check: checkWords(reading, words, ctx.shopCurrency) };
       entry.hops.push(hop('read', r, entry.languageSure === false ? 'the language was unclear, so it tried here first' : `it reads ${languageName(entry.language)} here`));
     } catch (e) {
       entry.problems = [`${DEVICE_MODEL} could not read it on this device (${(e as Error).message}).`];
@@ -578,7 +581,7 @@ export async function readQuestion(question: string, ctx: Context): Promise<{ qu
   const tidied = tidyQuery(r.value);
   const left = placeholderLeft(tidied, red.map, question);
   if (left) throw new Error(`The cloud's answer still holds "${left}" where a name was taken out; ask again with the name.`);
-  const query = restore(tidied, red.map);
+  const query = restore(tidied, red.map, question);
   return {
     query,
     hops: [hop('ask', r, because(why, r), `the question “${red.text}” only, ${n} name${n === 1 ? '' : 's'} removed; no records`)],
