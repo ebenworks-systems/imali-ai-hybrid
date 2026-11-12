@@ -396,3 +396,66 @@ describe('round 16 (EBE-11626)', () => {
     expect(restore({ person: 'Phone 1' }, red.map).person).toBe('0771234567');
   });
 });
+
+describe('round 19 (EBE-11663)', () => {
+  it("takes out a phone whose last pair is written like a price, so a peeled 'price' leaves no stub", () => {
+    for (const [said, phone] of [
+      ['Tél 06 12 34 56.78', '06 12 34 56.78'],
+      ['Call 077 123 45.67', '077 123 45.67'],
+    ]) {
+      const red = redact(said, []);
+      expect(red.map['[PHONE_1]'], said).toBe(phone);
+      expect(isClean(said, {}), said).toBe(false);
+      expect(isClean(red.text, red.map), said).toBe(true);
+    }
+    // A price beside a phone, and a list of prices, still stay.
+    expect(redact('Airtime 5.00 0771234567', []).text).toBe('Airtime 5.00 [PHONE_1]');
+    expect(redact('Sold 12.50 25.00 37.50', []).text).toBe('Sold 12.50 25.00 37.50');
+  });
+
+  it('takes out a phone written in other digits or with other separators', () => {
+    for (const said of [
+      'tel ٠٧٧١٢٣٤٥٦٧',
+      'tel ۰۷۷۱۲۳۴۵۶۷',
+      'Call 077 . 123 . 4567',
+      'tel 077 / 123 / 4567',
+      'tel 077−123−4567',
+      'tel 077·123·4567',
+      'tel 077​123​4567',
+    ]) {
+      const red = redact(said, []);
+      expect(red.text, said).toBe(said.startsWith('Call') ? 'Call [PHONE_1]' : 'tel [PHONE_1]');
+      expect(isClean(said, {}), said).toBe(false);
+    }
+    // A spaced date is still a date.
+    expect(redact('Sold on 12 / 11 / 2026', []).text).toBe('Sold on 12 / 11 / 2026');
+  });
+
+  it('refuses a phone the redaction rule does not know, by a wider rule of its own', () => {
+    for (const said of ['tel 077 , 123 , 4567', 'tel 077_123_4567', '+263 ; 77 ; 123 4567']) {
+      expect(isClean(redact(said, []).text, redact(said, []).map), said).toBe(false);
+    }
+    for (const said of ['Sold 1500, 2000, 3000 bread', 'Open 08:30 09:45 10:15', 'Sold 2 at 0.50, 0.75, 0.25, 1.25']) {
+      expect(isClean(said, {}), said).toBe(true);
+    }
+  });
+
+  it('does not take a second amount for part of a first one taken out', () => {
+    for (const said of ['Sold 10 bags UGX 100000 each, total UGX 10000000', 'Sold 1 cow 25000000 UGX, paid 5000000 now']) {
+      const red = redact(said, []);
+      expect(isClean(red.text, red.map, red.parts), said).toBe(true);
+    }
+    const red = redact('Sold 1 cow 25000000 UGX', []);
+    expect(redactAlso('The total 2500000 is not 25000000', red)).toBe('The total 2500000 is not [PHONE_1]');
+    // The owner's phone written with its country code and no + still takes its part the device prints.
+    const own = redact('Call 263771234567', []);
+    expect(redactAlso('Quantity 771234567 is too large', own)).toBe('Quantity [PHONE_1] is too large');
+  });
+
+  it('keeps a date at either end of a run with a price or a count', () => {
+    for (const said of ['Sold 3 bread 30 12/11/2026', 'Sold 3 bread 12/11/2026 30', 'Sold on 12/11/2026 3 bread', 'Sold 12/11/2026 14:30 2 bread']) {
+      expect(redact(said, []).text, said).toBe(said);
+    }
+    expect(redact('Pay 12.11.2026 0771234567', []).text).toBe('Pay 12.11.2026 [PHONE_1]');
+  });
+});

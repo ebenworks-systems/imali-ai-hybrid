@@ -13,11 +13,33 @@ export interface Redacted {
 }
 
 /**
- * Digits with at most one separator between them: a run of spaces of any kind but a new line, a dash with or without
- * spaces round it ("077 - 123 - 4567"), or a bare dot or slash. It may open with "+", "(area code)" or "+263 (0)".
- * `phoneIn` decides which part of such a run is a phone number.
+ * Text with every digit in ASCII ("٠٧٧" is "077"), no zero-width marks, and a minus sign or a middle dot written as a
+ * dash or a dot, so a phone written with them is found like any other.
  */
-const PHONE = /(?:\+\d{1,4}[^\S\n]*\(0\)[^\S\n]*|\+?\(\d{1,4}\)[^\S\n]*|\+)?\d(?:(?:[^\S\n]+|[^\S\n]*\p{Pd}[^\S\n]*|[./])?\d){5,}/gu;
+export function normalise(text: string): string {
+  return text
+    .replace(/[\u200B-\u200D\u2060\uFEFF\u00AD]/g, '')
+    .replace(/[\u2212\u2796\uFE63\uFF0D]/g, '-')
+    .replace(/[\u00B7\u2022\u2219\u30FB\uFF0E]/g, '.')
+    .replace(/\p{Nd}/gu, (d) => {
+      if (/[0-9]/.test(d)) return d;
+      // A script's digits run from its zero in order, so a digit's value is how far it is from the first of its run.
+      let cp = d.codePointAt(0) ?? 0;
+      let k = 0;
+      while (k < 60 && /\p{Nd}/u.test(String.fromCodePoint(cp - 1))) {
+        cp--;
+        k++;
+      }
+      return String(k % 10);
+    });
+}
+
+/**
+ * Digits with at most one separator between them: a run of spaces of any kind but a new line, or a dash, dot or slash
+ * with or without spaces round it ("077 - 123 - 4567", "077 . 123 . 4567"). It may open with "+", "(area code)" or
+ * "+263 (0)". Read it on `normalise`d text. `phoneIn` decides which part of such a run is a phone number.
+ */
+const PHONE = /(?:\+\d{1,4}[^\S\n]*\(0\)[^\S\n]*|\+?\(\d{1,4}\)[^\S\n]*|\+)?\d(?:(?:[^\S\n]+|[^\S\n]*[\p{Pd}./][^\S\n]*)?\d){5,}/gu;
 const digitCount = (s: string) => s.replace(/\D/g, '').length;
 
 /** A date ("12/11/2026", "2026-11-12", "12/11") or two joined by a dash ("12/11-15/11"), with a real day and month. */
@@ -27,35 +49,47 @@ const Y = String.raw`(?:\d{2}|(?:19|20)\d{2})`;
 const DAY = String.raw`(?:${D}[./]${M}(?:[./]${Y})?|${D}-${M}-${Y}|(?:19|20)\d{2}[./-]${M}[./-]${D})`;
 const DATE = new RegExp(String.raw`^${DAY}(?:[^\S\n]*\p{Pd}[^\S\n]*${DAY})?$`, 'u');
 
-/** A price with cents ("12.50", "5,00"), which never starts or ends a phone written with spaces. */
+/** A price with cents ("12.50", "5,00"). */
 const PRICE = /^\d+[.,]\d{2}$/;
+/** One group that is a date with a slash or a four-digit year ("12/11", "12.11.2026", "2026-11-12"). */
+const isDay = (g: string) => /\/|(?:19|20)\d{2}/.test(g) && DATE.test(g);
 
 /**
  * The phone number inside one PHONE run, as [start, end] within the run, or null when the run holds none: eight digits
  * or more (Burkina Faso, Mali, Niger, Togo and Botswana numbers have eight), once these are left out:
- * - a price with cents at either end ("Airtime 5.00 0771234567"), or a whole list of them ("12.50 25.00 37.50");
+ * - a date at either end ("Sold 3 bread 30 12/11/2026"), or a date or two as the whole run ("12/11/2026",
+ *   "2026-11-12", "12/11-15/11", "12 / 11 / 2026");
+ * - a price with cents at either end ("Airtime 5.00 0771234567"), or a whole list of them ("12.50 25.00 37.50"), but
+ *   only when what is left is a phone on its own: in "077 123 45.67" the "45.67" is the phone's last pair;
  * - an amount of up to seven digits typed before a phone written in one piece that opens with its trunk 0
- *   ("Sold 2 bread 30 0771234567", "KSh 1000 0712345678");
- * - a date or two ("12/11/2026", "2026-11-12", "12/11-15/11").
+ *   ("Sold 2 bread 30 0771234567", "KSh 1000 0712345678").
  * Any other run of eight digits or more goes, amounts too ("UGX 25 000 000"): a phone that leaves the device is worse
  * than an amount that stays on it, which only means the cloud's reading cannot be checked.
  */
 function phoneIn(run: string): [number, number] | null {
   // The groups the run's spaces make, each with where it starts.
   const groups = [...run.matchAll(/\S+/g)].map((m) => ({ text: m[0], at: m.index ?? 0 }));
-  let first = 0;
-  let last = groups.length - 1;
   const body = (a: number, b: number) => (a > b ? '' : run.slice(groups[a].at, groups[b].at + groups[b].text.length));
-  while (first <= last && PRICE.test(groups[first].text)) first++;
-  while (last >= first && PRICE.test(groups[last].text)) last--;
+  const trim = (prices: boolean): [number, number] => {
+    const peel = (g: string) => (prices && PRICE.test(g)) || isDay(g);
+    let a = 0;
+    let b = groups.length - 1;
+    while (a <= b && peel(groups[a].text)) a++;
+    while (b >= a && peel(groups[b].text)) b--;
+    return [a, b];
+  };
+  let [first, last] = trim(true);
   if (first > last) return null;
-  if (first + 1 === last && /^[1-9]\d{0,6}$/.test(groups[first].text) && /^0\d{8,}$/.test(groups[last].text)) first++;
+  // A price peeled off a run that then holds too few digits for a phone was part of the phone.
+  if (digitCount(body(first, last)) < 8) [first, last] = trim(false);
+  if (first > last) return null;
+  if (first + 1 === last && /^[1-9]\d{0,6}\.?$/.test(groups[first].text) && /^0\d{8,}$/.test(groups[last].text)) first++;
   const s = body(first, last);
-  if (digitCount(s) < 8 || DATE.test(s)) return null;
+  if (digitCount(s) < 8 || DATE.test(s.replace(/[^\S\n]+/g, ''))) return null;
   return [groups[first].at, groups[last].at + groups[last].text.length];
 }
 
-/** Each PHONE run in `text` with the phone inside it, if any: [run start, phone start, phone end] in `text`. */
+/** Each PHONE run in `normalise`d `text` with the phone inside it, if any: [run start, phone start, phone end] in `text`. */
 function phonesIn(text: string): { phone: string; start: number; end: number }[] {
   const out: { phone: string; start: number; end: number }[] = [];
   for (const m of text.matchAll(PHONE)) {
@@ -89,12 +123,17 @@ const looksLikePhone = (s: string) => /\D/.test(s) || /^0/.test(s);
 /**
  * The placeholder of the owner's phone that these digits are, wholly or in part (six digits or more), or undefined.
  * The device prints a number it read as plain digits, and its number reader may split "077 123 4567" into 77123456.
+ * A value taken out as plain digits with no 0 or + in front may be an amount ("25000000"), so it matches whole, or in
+ * part only when the part has nine digits or more ("771234567" of "263771234567"): "5000000" is another amount.
  */
 function mappedPhone(digits: string, map: Record<string, string>): string | undefined {
   if (digits.length < 6) return undefined;
   return Object.entries(map).find(([k, v]) => {
     const pd = phoneDigits(v);
-    return k.startsWith('[PHONE_') && pd.length >= 6 && (pd.includes(digits) || digits.includes(pd));
+    if (!k.startsWith('[PHONE_') || pd.length < 6) return false;
+    if (pd === digits) return true;
+    const amount = /^[1-9]\d*$/.test(v.trim());
+    return (!amount || Math.min(pd.length, digits.length) >= 9) && (pd.includes(digits) || digits.includes(pd));
   })?.[0];
 }
 
@@ -157,7 +196,7 @@ export function wholeWord(text: string, flags = 'iu'): RegExp {
 export function redact(text: string, known: string[] = []): Redacted {
   const map: Record<string, string> = {};
   const parts = new Set<string>();
-  let out = text;
+  let out = normalise(text);
   let n = 0;
   const keyFor = (name: string) => {
     const existing = Object.entries(map).find(([, v]) => v.toLowerCase() === name.toLowerCase());
@@ -208,7 +247,7 @@ export function redact(text: string, known: string[] = []): Redacted {
  * not used here: the device writes item names with capitals ("Loaves"), and those are not people.
  */
 export function redactAlso(text: string, red: Redacted, known: string[] = []): string {
-  let out = text;
+  let out = normalise(text);
   const parts = new Set(red.parts ?? []);
   const keyFor = (name: string, part: boolean) => {
     let key = Object.entries(red.map).find(([, v]) => v.toLowerCase() === name.toLowerCase())?.[0];
@@ -327,16 +366,35 @@ export function placeholderLeft(value: unknown, map: Record<string, string>, sai
 }
 
 /**
+ * A phone that `phonesIn` would not find, looked for in a wider way so the check does not rest on the same rule as the
+ * redaction: eight digits or more joined by up to three marks that are neither letters nor digits ("077 , 123 , 4567",
+ * "077_123_4567", "+263 ; 77 ; 123 4567"), once placeholders are gone, that open with + or have a group opening with 0
+ * that is not a price, a date or a time. A list of amounts ("1500, 2000, 3000") and a run of plain digits stay.
+ */
+function loosePhone(text: string): boolean {
+  const bare = text.replace(/\[[A-Z]+_\d+\]/g, ' ');
+  for (const m of bare.matchAll(/(\+[^\S\n]*)?\d(?:[^\p{L}\p{N}\n]{0,3}\d)*/gu)) {
+    if (digitCount(m[0]) < 8) continue;
+    if (m[1]) return true;
+    const groups = m[0].split(/[^\d./:-]+/).filter((g) => /\d/.test(g));
+    if (groups.some((g) => /^0\d/.test(g) && !PRICE.test(g) && !DATE.test(g) && !/^\d{1,2}:\d{2}$/.test(g))) return true;
+  }
+  return false;
+}
+
+/**
  * True when no phone number of any kind and no original name in the map is still in the text as a word of its own,
  * and no known or mapped full name is still there written split. A placeholder in `parts` holds one part of a split name, and that
  * word alone is an ordinary word, so it is not looked for on its own.
  */
-export function isClean(text: string, map: Record<string, string>, parts: string[] = [], known: string[] = []): boolean {
+export function isClean(given: string, map: Record<string, string>, parts: string[] = [], known: string[] = []): boolean {
+  const text = normalise(given);
   const skip = new Set(parts);
   const whole = Object.entries(map).filter(([k]) => !skip.has(k)).map(([, v]) => v);
   return (
     // No number written as a phone, and no run of the owner's phone digits, whole or in part.
     !phonesIn(text).some((p) => looksLikePhone(p.phone)) &&
+    !loosePhone(text) &&
     ![...text.matchAll(/\d{6,}/g)].some((m) => mappedPhone(phoneDigits(m[0]), map)) &&
     whole.every((v) => !wholeWord(v).test(text)) &&
     [...whole, ...known].every((v) => !splitName(v)?.test(text))

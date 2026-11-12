@@ -307,3 +307,28 @@ describe('round 16 sale span (EBE-11626)', () => {
     }
   });
 });
+
+describe('round 19 sale span (EBE-11663)', () => {
+  it('ends the sale clause at another verb written without its accent or with another ending', () => {
+    for (const words of [
+      'Vendu à une cliente, achete 2 cartons pour 12 par carton',
+      'Vendu à une cliente, paye 2 cartons pour 12 par carton',
+      'Vendu à une cliente, commande 2 cartons pour 12 par carton',
+      'Vendu à une cliente, recue 2 cartons pour 12 par carton',
+      'Vendu à une cliente, payées 2 cartons pour 12 par carton',
+      'Vendu à une cliente, pris 2 cartons pour 12 par carton',
+      'Vendu à une cliente, arrivé 2 cartons pour 12 par carton',
+    ]) {
+      expect(amountsIn(words).find((a) => a.value === 12)?.each, words).toBe(false);
+    }
+  });
+
+  it('does not end the sale clause at a word that only describes the customer', () => {
+    const words = 'Vendu à un client payé cash, 2 sacs pour 5000 par sac';
+    expect(amountsIn(words).find((a) => a.value === 5000)?.each).toBe(true);
+    const wrong = r({ items: [{ name: 'sac', quantity: 2, unit_price: 2500, line_total: 5000 }], total: 5000, currency: 'XOF' });
+    expect(checkWords(wrong, words).ok).toBe(false);
+    const right = r({ items: [{ name: 'sac', quantity: 2, unit_price: 5000, line_total: 10000 }], total: 10000, currency: 'XOF' });
+    expect(checkWords(right, words).ok).toBe(true);
+  });
+});
