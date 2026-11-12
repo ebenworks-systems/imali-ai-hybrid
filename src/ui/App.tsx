@@ -2,7 +2,7 @@
 // enters stays in this browser. The ledger shows every step that ran in the cloud and what it was sent.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { cloudConfigured, DEFAULTS, loadSettings, type Settings } from '../ai/firebase';
+import { cloudConfigured, SETTINGS } from '../ai/firebase';
 import {
   cloudBlocked,
   cloudCallsToday,
@@ -263,7 +263,6 @@ function AnswerSlip({ slip, currency }: { slip: Extract<Slip, { type: 'answer' }
 
 export function App() {
   const [entries, setEntries] = useState<Entry[]>([]);
-  const [settings, setSettings] = useState<Settings>(DEFAULTS);
   const [currency, setCurrency] = useState('ZAR');
   const [secondOn, setSecondOn] = useState(true);
   const [askLog, setAskLog] = useState<AskLog>({ device: 0, cloud: 0, names: 0 });
@@ -298,7 +297,6 @@ export function App() {
       setAskLog(await getMeta('askLog', { device: 0, cloud: 0, names: 0 }));
       await refresh();
       setDevice(await deviceStatus());
-      setSettings(await loadSettings());
     })();
   }, [refresh]);
 
@@ -309,12 +307,12 @@ export function App() {
 
   const ctx = useMemo<Context>(
     () => ({
-      settings: { ...settings, secondOpinion: settings.secondOpinion && secondOn },
+      settings: { ...SETTINGS, secondOpinion: SETTINGS.secondOpinion && secondOn },
       shopCurrency: currency,
       knownNames,
       onStep: setBusy,
     }),
-    [settings, secondOn, currency, knownNames],
+    [secondOn, currency, knownNames],
   );
   const ctxRef = useRef(ctx);
   useEffect(() => {
@@ -819,7 +817,7 @@ export function App() {
                 ? `${stayed} of ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'} never left this device. `
                 : 'Nothing has been read yet. '}
               {namesOut === 1 ? '1 name was' : `${namesOut} names were`} taken out before a cloud call. Cloud calls today: {callsToday} of{' '}
-              {settings.maxCloudCallsPerDay}.
+              {SETTINGS.maxCloudCallsPerDay}.
             </p>
             {waiting > 0 && (
               <div className="queue">
