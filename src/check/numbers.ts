@@ -55,7 +55,6 @@ const ARTICLES = 'un|une|a|an';
 const COUNT_WORDS = Object.keys(WORDS)
   .filter((w) => !ARTICLES.split('|').includes(w))
   .join('|');
-const escapeRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** The words the owner used for items: the word right after a count ("3 sacs", "trois bouteilles de lait"). */
 function itemWords(text: string): Set<string> {
@@ -92,9 +91,9 @@ function parForOne(after: string, before: string, prefix: string, rest: string):
     // sacs pour 5000 par sac" is a price; in "Vendu 2 sacs, reçu 2 cartons pour 12 par carton" the 2 sacs are the sale's
     // count, so 12 is not).
     const lead = /^(?:pour|for)$/iu.test(prefix) ? `${before} ${prefix}` : before;
-    // An article stops the span only when it counts a unit or the item "par" names ("Vendu un sac, reçu 2 cartons"),
-    // not when it is "a" or "one" of something else ("Vendu à une cliente, 2 sacs").
-    const stop = `(?:${COUNT_WORDS})(?![\\p{L}])|(?:${ARTICLES})\\s+(?:de\\s+|d['’])?(?:${PAR_UNITS.source.slice(1, -1)}|${escapeRe(stem)}[sx]?)(?![\\p{L}])`;
+    // An article stops the span like any count ("Vendu un sac, reçu 2 cartons"), except after a word such as "à",
+    // where it is "a" or "one" of someone, not the count ("Vendu à une cliente, 2 sacs").
+    const stop = `(?:${COUNT_WORDS})(?![\\p{L}])|(?<!(?:^|[^\\p{L}])(?:à|au|aux|pour|to|for|de|avec)\\s+)(?:${ARTICLES})(?![\\p{L}])`;
     const sale = new RegExp(
       `(?:^|[^\\p{L}])(?:vendu|vendus|vendue|vendues|vend|vends|sold|sell|sells)(?![\\p{L}])(?:(?!(?<![\\p{L}\\p{N}])(?:${stop}))[^.;\\d])*?(?<![\\p{L}\\p{N}])(?:\\d+(?:[ ,.]\\d{3})*|${NUMBER_WORDS})\\s+(?:de\\s+|d['’])?\\p{L}+\\s+(?:pour|for)\\s*$`,
       'iu',

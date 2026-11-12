@@ -48,6 +48,8 @@ export interface Entry {
   /** False when Chrome's language detector was unsure, as it often is on a short message. */
   languageSure?: boolean;
   reading: Reading;
+  /** The shop's currency when the entry was read, which plain "shillings" in the words follow. */
+  shopCurrency?: string;
   /** The device's first reading when the cloud's second opinion replaced it. */
   firstReading?: Reading;
   status: Status;

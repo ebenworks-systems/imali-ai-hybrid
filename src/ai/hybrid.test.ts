@@ -395,6 +395,8 @@ describe('reading words', () => {
     const e = await readWords('Nimemuuzia Juma mikate 2 kwa KSh 60 kila mmoja, atalipa Ijumaa', ctx);
     expect(e.reading.person).toBe('Juma');
     expect(e.status).toBe('checked');
+    // The slip re-checks plain "shillings" against the shop's currency at the time, not a later one (EBE-11626).
+    expect(e.shopCurrency).toBe(ctx.shopCurrency);
   });
 
   it("reads the model's currency name or symbol as the words' code, so FCFA read as CFA passes", async () => {

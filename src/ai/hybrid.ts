@@ -365,6 +365,7 @@ export async function readWords(words: string, ctx: Context): Promise<Entry> {
     language: lang.code,
     languageSure: lang.sure,
     reading: { kind: 'sale', items: [], total: 0, currency: ctx.shopCurrency, person: null, due: null },
+    shopCurrency: ctx.shopCurrency,
     status: 'waiting',
     problems: [],
     hops: [],

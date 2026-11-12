@@ -33,19 +33,22 @@ const THOUSANDS = /^[1-9]\d{0,2}(?:(?:[^\S\n]|\.)\d{3})+$/u;
 /** A money mark right before an amount ("UGX 25 000 000", "R 12 500 000") or a currency word right after it. */
 const CODES = 'USD|ZAR|KES|INR|XOF|XAF|ZWG|ZWL|NGN|GHS|EUR|GBP|TZS|UGX|RWF|MWK|ZMW|BWP|MZN|ETB|EGP|MAD';
 const MONEY_BEFORE = new RegExp(String.raw`(?:(?<![\p{L}])(?:${CODES}|K?Shs?|TShs?|UShs?|Rs\.?|R|F|FCFA|CFA)|[$€£₹₦₵])[^\S\n]*$`, 'u');
+// A currency after the run, not one that opens the next amount ("Sent to 254712345678 KES 500").
 const MONEY_AFTER = [
-  /^[^\S\n]*(?:shillings?|francs?|frs?|FCFA|CFA|rands?|dollars?|naira|cedis?|rupees?|euros?|bob)(?![\p{L}])/iu,
-  new RegExp(String.raw`^[^\S\n]*(?:${CODES}|F)(?![\p{L}\p{N}])`, 'u'),
+  /^[^\S\n]*(?:shillings?|francs?|frs?|FCFA|CFA|rands?|dollars?|naira|cedis?|rupees?|euros?)(?![\p{L}])(?![^\S\n]*\d)/iu,
+  new RegExp(String.raw`^[^\S\n]*(?:${CODES}|F)(?![\p{L}\p{N}])(?![^\S\n]*\d)`, 'u'),
 ];
 
 /**
  * The phone number inside one PHONE run, as [start, end] within the run, or null when the run holds none. Eight digits
  * or more (Burkina Faso, Mali, Niger, Togo and Botswana numbers have eight), once these are left out:
  * - a price with cents at either end ("Airtime 5.00 0771234567"), or a whole list of them ("12.50 25.00 37.50");
- * - a short amount before a number that opens with its trunk 0 ("Sold 2 bread 30 0771234567");
+ * - an amount before a number that opens with its trunk 0 or holds eight digits on its own ("KSh 1000 0712345678",
+ *   "$5 771234567"), unless the whole run is grouped in thousands ("1 500 000 000");
  * - a date or two ("12/11/2026", "2026-11-12", "12/11-15/11");
- * - with `around`, an amount: a run with no leading 0, + or bracket that has a money mark next to it ("UGX 25 000 000",
- *   "25000000 shillings"), or is eight digits grouped in thousands ("25 000 000").
+ * - with `around`, an amount: ten digits or fewer with no leading 0, + or bracket, written plain or in thousands, with a
+ *   money mark right before it or a currency right after it ("UGX 25 000 000", "25000000 shillings"). With no money
+ *   beside it, such a run is taken out: a phone that stays is worse than an amount that goes.
  */
 function phoneIn(run: string, around?: { before: string; after: string }): [number, number] | null {
   // The groups the run's spaces make, each with where it starts.
@@ -56,17 +59,21 @@ function phoneIn(run: string, around?: { before: string; after: string }): [numb
   while (first <= last && PRICE.test(groups[first].text)) first++;
   while (last >= first && PRICE.test(groups[last].text)) last--;
   if (first > last) return null;
-  if (first < last && /^\d{1,3}$/.test(groups[first].text) && /^0/.test(groups[first + 1].text)) {
-    const rest = body(first + 1, last);
-    if (digitCount(rest) >= 8) first++;
+  if (
+    first < last &&
+    !THOUSANDS.test(body(first, last)) &&
+    /^\d+$/.test(groups[first].text) &&
+    (/^0/.test(groups[first + 1].text) || digitCount(groups[first + 1].text) >= 8) &&
+    digitCount(body(first + 1, last)) >= 8
+  ) {
+    first++;
   }
   const s = body(first, last);
   if (digitCount(s) < 8 || DATE.test(s)) return null;
-  if (around && /^[1-9]/.test(s)) {
+  if (around && /^[1-9]/.test(s) && digitCount(s) <= 10 && (/^\d+$/.test(s) || THOUSANDS.test(s))) {
     const before = around.before + run.slice(0, groups[first].at);
     const after = run.slice(groups[last].at + groups[last].text.length) + around.after;
     if (MONEY_BEFORE.test(before) || MONEY_AFTER.some((re) => re.test(after))) return null;
-    if (digitCount(s) === 8 && THOUSANDS.test(s)) return null;
   }
   return [groups[first].at, groups[last].at + groups[last].text.length];
 }

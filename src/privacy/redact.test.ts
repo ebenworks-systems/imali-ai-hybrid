@@ -324,7 +324,6 @@ describe('round 16 (EBE-11626)', () => {
       'Sold a cow for UGX 25 000 000',
       'Sold a cow for 25000000 shillings',
       'Achat 12.500.000 F',
-      'Sold a cow for 25 000 000',
       'Paid on 2026-11-12',
       'Away 12/11-15/11',
     ]) {
@@ -332,7 +331,8 @@ describe('round 16 (EBE-11626)', () => {
       expect(Object.keys(red.map).filter((k) => k.startsWith('[PHONE_'))).toEqual([]);
       expect(isClean(red.text, red.map)).toBe(true);
     }
-    // An eight-digit phone with no money near it still goes.
+    // An eight-digit phone with no money near it still goes, even grouped like an amount.
+    expect(redact('Call 71 234 567', []).map['[PHONE_1]']).toBe('71 234 567');
     expect(redact('Pay Awa 70 12 34 56 tomorrow', []).map['[PHONE_1]']).toBe('70 12 34 56');
     expect(redact('Call 70123456 for the bread', []).map['[PHONE_1]']).toBe('70123456');
   });
@@ -341,6 +341,29 @@ describe('round 16 (EBE-11626)', () => {
     const red = redact('Airtime 5.00 0771234567', []);
     expect(redactAlso('The price 5.00 0771234567 is not in the words.', red)).toBe('The price 5.00 [PHONE_1] is not in the words.');
     expect(redactAlso('The quantity 771234567 is not in the words.', red)).toBe('The quantity [PHONE_1] is not in the words.');
+  });
+
+  it('takes out a phone typed after an amount beside money, and one before the next amount (round 17)', () => {
+    for (const [said, phone] of [
+      ['Sent KSh 1000 0712345678', '0712345678'],
+      ['$ 1200 0771234567', '0771234567'],
+      ['Airtime $5 771234567', '771234567'],
+      ['Ecocash $20 263771234567', '263771234567'],
+      ['KSh 100 254712345678', '254712345678'],
+      ['Sent 1000 0712345678 shillings', '0712345678'],
+      ['M-Pesa 2500 0712345678 KES', '0712345678'],
+      ['Sent to 254712345678 KES 500', '254712345678'],
+      ['Airtime to 771234567 USD 5', '771234567'],
+      ['Mpesa 254 712 345 678 KES 200', '254 712 345 678'],
+      ['Call 263 77 123 4567 bob', '263 77 123 4567'],
+    ]) {
+      const red = redact(said, []);
+      expect(red.map['[PHONE_1]']).toBe(phone);
+      expect(red.text).not.toContain(phone);
+      expect(isClean(said, red.map)).toBe(false);
+      expect(isClean(red.text, red.map)).toBe(true);
+    }
+    expect(redact('Sold a cow for UGX 1 500 000 000', []).text).toBe('Sold a cow for UGX 1 500 000 000');
   });
 
   it('keeps a short amount typed one space before a phone that opens with 0', () => {

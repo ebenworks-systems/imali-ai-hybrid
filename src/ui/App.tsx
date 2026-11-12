@@ -157,7 +157,7 @@ function Hops({ hops }: { hops: Hop[] }) {
 
 function EntrySlip({ entry, currency, onRemove }: { entry: Entry; currency: string; onRemove: (id: string) => void }) {
   const r = entry.reading;
-  const check = entry.source === 'receipt' ? checkReceipt(r) : checkWords(r, entry.words, currency);
+  const check = entry.source === 'receipt' ? checkReceipt(r) : checkWords(r, entry.words, entry.shopCurrency ?? currency);
   const showPassed = entry.status === 'checked' || entry.status === 'checked-in-cloud';
   return (
     <div className="slip reveal" key={entry.id}>

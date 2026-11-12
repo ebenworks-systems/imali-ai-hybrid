@@ -294,7 +294,12 @@ describe('round 16 sale span (EBE-11626)', () => {
       expect(checkWords(wrong, words).ok).toBe(false);
     }
     // An article that counts a unit is still the sale's count, so 12 is a pack size, not a price.
-    const pack = amountsIn('Vendu un sac, reçu 2 cartons pour 12 par carton').find((a) => a.value === 12);
-    expect(pack?.each).toBe(false);
+    for (const words of [
+      'Vendu un sac, reçu 2 cartons pour 12 par carton',
+      'Vendu un pagne, reçu 2 cartons pour 12 par carton',
+      'Vendu une chèvre, reçu 2 sacs pour 5 par sac',
+    ]) {
+      expect(amountsIn(words).find((a) => a.value === 12 || a.value === 5)?.each).toBe(false);
+    }
   });
 });
