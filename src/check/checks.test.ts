@@ -83,6 +83,10 @@ describe('numbers', () => {
     expect(each('Moussa doit 30000, il paie 10000 F par tranche', 10000)).toBe(false);
     expect(each('Vendu 3 sac par sac 5000', 3)).toBe(false);
     expect(each('Vendu 2 cartons, 12 par carton, 6000 F', 12)).toBe(false);
+    // Round 13 (EBE-11444): a number word must stand alone ("la" is not "a"), and the count is the sale's own, not a
+    // later clause's.
+    expect(each('Vendu 2 sacs, la livraison pour 3 par sac', 3)).toBe(false);
+    expect(each('Vendu 2 sacs, reçu 2 cartons pour 12 par carton', 12)).toBe(false);
     const pains = r({ items: [{ name: 'pain', quantity: 30, unit_price: 100, line_total: 3000 }], total: 3000, currency: 'XOF' });
     expect(checkWords(pains, 'Chaque jour je vends 30 pains, 3000 F par jour').ok).toBe(true);
   });
@@ -149,6 +153,10 @@ describe('numbers', () => {
     expect(currencyIn('Vendu 2 sacs de riz à 5000 FCFA')).toBe('XOF');
     expect(currencyIn('₹250 for tea')).toBe('INR');
     expect(currencyIn('12 dollars each')).toBe('USD');
+    // Round 13 (EBE-11444): a country's shillings are its own, as the model's currency name reads them.
+    expect(currencyIn('Sold 2 sodas for 1500 Tanzanian shillings')).toBe('TZS');
+    expect(currencyIn('Paid 3000 Ugandan shillings for transport')).toBe('UGX');
+    expect(currencyIn('Paid 300 Kenyan shillings')).toBe('KES');
     expect(currencyIn('Sold three loaves')).toBeNull();
   });
 });

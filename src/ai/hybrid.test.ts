@@ -413,6 +413,9 @@ describe('reading words', () => {
     expect(currencyCode('TShs', 'ZAR')).toBe('TZS');
     expect(currencyCode('USH', 'ZAR')).toBe('UGX');
     expect(currencyCode('UShs', 'ZAR')).toBe('UGX');
+    // Round 13 (EBE-11444): a name the list does not hold is kept whole, so it fails the code check.
+    expect(currencyCode('Australian dollars', 'ZAR')).toBe('AUSTRALIAN DOLLARS');
+    expect(currencyCode('Botswana pula', 'ZAR')).toBe('BOTSWANA PULA');
     // The names the read prompt itself gives, and a country's name for its own currency.
     expect(currencyCode('dollars', 'ZAR')).toBe('USD');
     expect(currencyCode('US dollars', 'ZAR')).toBe('USD');

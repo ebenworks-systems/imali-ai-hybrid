@@ -271,8 +271,8 @@ export function currencyCode(v: string | null, shopCurrency: string): string {
   if (!v) return shopCurrency;
   const t = v.trim();
   for (const [re, code] of CURRENCY_FORMS) if (re.test(t)) return code;
-  if (/^[A-Za-z]{3}$/.test(t)) return t.toUpperCase();
-  return t.toUpperCase().slice(0, 3);
+  // Anything else is kept whole: cut to three letters, "Australian dollars" would pass the check as "AUS".
+  return t.toUpperCase();
 }
 
 export function tidyReading(raw: unknown, shopCurrency: string): Reading {

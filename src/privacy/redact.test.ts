@@ -201,3 +201,27 @@ describe('redact', () => {
     });
   });
 });
+
+describe('round 13 (EBE-11444)', () => {
+  it("takes a phone number out of the device's problem lines, with the owner's own placeholder when the digits match", () => {
+    const red = redact('Sold airtime 20 to 0771234567 for R10', []);
+    expect(red.map['[PHONE_1]']).toBe('0771234567');
+    // The device read the number as a quantity and printed it without the leading 0.
+    const line = redactAlso('"airtime": 771234567 x 20, not 20.', red, []);
+    expect(line).not.toContain('771234567');
+    expect(line).toContain('[PHONE_1]');
+    // A number the owner never wrote gets a placeholder of its own.
+    const other = redactAlso('The total 263772123456 is not 20.', red, []);
+    expect(other).not.toMatch(/\d{9}/);
+    expect(other).toContain('[PHONE_2]');
+    expect(isClean('"airtime": 771234567 x 20', red.map)).toBe(false);
+    expect(isClean(line, red.map)).toBe(true);
+  });
+
+  it('does not count an answer as clean while a phone placeholder sits inside a value in any case', () => {
+    const red = redact('Sold airtime 20 to 0771234567 for R10', []);
+    expect(placeholderLeft({ items: [{ name: 'airtime for Phone 1' }] }, red.map)).not.toBeNull();
+    // With no phone in the map, "phone 1 charger" is an ordinary item.
+    expect(placeholderLeft({ items: [{ name: 'phone 1 charger' }] }, {})).toBeNull();
+  });
+});

@@ -14,6 +14,9 @@ export interface Redacted {
 
 const PHONE = /(?:\+?\d[\d\s-]{7,}\d)/g;
 
+/** A phone number's digits with the leading + and zeros gone, so "0771234567" and the device's 771234567 match. */
+const phoneDigits = (s: string) => s.replace(/\D/g, '').replace(/^0+/, '');
+
 /** Capitalised words that are not names in a shop's sentence. */
 const NOT_NAMES = new Set(
   (
@@ -144,6 +147,17 @@ export function redactAlso(text: string, red: Redacted, known: string[] = []): s
     if (wholeWord(name).test(out)) out = out.replace(wholeWord(name, 'giu'), keyFor(name, false));
     out = swapSplitName(out, name, (part) => keyFor(part, true));
   }
+  // A phone number the device read as a quantity or a total comes back printed as plain digits ("771234567" for the
+  // owner's "0771234567"): it takes the owner's placeholder when the digits match, else one of its own.
+  out = out.replace(PHONE, (match) => {
+    const digits = phoneDigits(match);
+    let key = Object.entries(red.map).find(([k, v]) => k.startsWith('[PHONE_') && phoneDigits(v) === digits)?.[0];
+    if (!key) {
+      key = `[PHONE_${Object.keys(red.map).filter((k) => k.startsWith('[PHONE_')).length + 1}]`;
+      red.map[key] = match;
+    }
+    return key;
+  });
   red.parts = [...parts];
   return out;
 }
@@ -187,24 +201,26 @@ export function restore<T>(value: T, map: Record<string, string>): T {
  * A placeholder still in a restored answer, in any of the forms a model writes one ("[PERSON_3]", "PERSON1",
  * "Person 1", "PERSON_1s"), or null. Such an answer names nobody the owner knows, so it must not count as checked.
  */
-export function placeholderIn(value: unknown): string | null {
+export function placeholderIn(value: unknown, phoneSent = false): string | null {
   if (typeof value === 'string') {
     return (
       /\bPERSON[\s_-]?\d+/i.exec(value)?.[0] ??
       /\bPHONE[\s_-]?\d+/.exec(value)?.[0] ??
       /\bphone_\d+/i.exec(value)?.[0] ??
       /^\s*[[{<]?(phone[\s_-]?\d+)[\]}>]?\s*$/i.exec(value)?.[1] ??
+      // When a phone placeholder was sent, "Phone 1" anywhere in a value is that placeholder rewritten.
+      (phoneSent ? /\bphone[\s_-]?\d+\b/i.exec(value)?.[0] : undefined) ??
       null
     );
   }
   if (Array.isArray(value)) {
     for (const v of value) {
-      const hit = placeholderIn(v);
+      const hit = placeholderIn(v, phoneSent);
       if (hit) return hit;
     }
     return null;
   }
-  if (value && typeof value === 'object') return placeholderIn(Object.values(value));
+  if (value && typeof value === 'object') return placeholderIn(Object.values(value), phoneSent);
   return null;
 }
 
@@ -213,18 +229,20 @@ export function placeholderIn(value: unknown): string | null {
  * before the real values go back, so a phone number the owner wrote after the word "phone" is not taken for one.
  */
 export function placeholderLeft(value: unknown, map: Record<string, string>): string | null {
-  return placeholderIn(restore(value, Object.fromEntries(Object.keys(map).map((k) => [k, '']))));
+  const phoneSent = Object.keys(map).some((k) => k.startsWith('[PHONE_'));
+  return placeholderIn(restore(value, Object.fromEntries(Object.keys(map).map((k) => [k, '']))), phoneSent);
 }
 
 /**
- * True when no original name or phone number in the map is still in the text as a word of its own, and no known or
- * mapped full name is still there written split. A placeholder in `parts` holds one part of a split name, and that
+ * True when no phone number of any kind and no original name in the map is still in the text as a word of its own,
+ * and no known or mapped full name is still there written split. A placeholder in `parts` holds one part of a split name, and that
  * word alone is an ordinary word, so it is not looked for on its own.
  */
 export function isClean(text: string, map: Record<string, string>, parts: string[] = [], known: string[] = []): boolean {
   const skip = new Set(parts);
   const whole = Object.entries(map).filter(([k]) => !skip.has(k)).map(([, v]) => v);
   return (
+    !new RegExp(PHONE.source).test(text) && // no phone number of any kind, mapped or not
     whole.every((v) => !wholeWord(v).test(text)) &&
     [...whole, ...known].every((v) => !splitName(v)?.test(text))
   );
