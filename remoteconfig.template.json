@@ -1,0 +1,24 @@
+{
+  "parameters": {
+    "cloud_model": {
+      "defaultValue": { "value": "gemini-3.5-flash-lite" },
+      "description": "Cloud model for readings Gemini Nano cannot take (a language it does not read, no Nano on the device).",
+      "valueType": "STRING"
+    },
+    "second_opinion_model": {
+      "defaultValue": { "value": "gemini-3.8-flash" },
+      "description": "Cloud model asked for a second opinion when the device's reading fails a check.",
+      "valueType": "STRING"
+    },
+    "second_opinion": {
+      "defaultValue": { "value": "true" },
+      "description": "Switches cloud second opinions on or off for every copy of the app.",
+      "valueType": "BOOLEAN"
+    },
+    "max_cloud_calls_per_day": {
+      "defaultValue": { "value": "60" },
+      "description": "Cloud calls one browser may make in a day.",
+      "valueType": "NUMBER"
+    }
+  }
+}
