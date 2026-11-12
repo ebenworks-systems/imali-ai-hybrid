@@ -396,3 +396,16 @@ describe('second review round 20, third pass (EBE-11672)', () => {
     }
   });
 });
+
+describe('second review round 21 (EBE-11682)', () => {
+  it('ends the clause after "j\'" or "y" before the object pronoun', () => {
+    for (const words of [
+      'Vendu au voisin, j’en commande 2 cartons pour 12 par carton',
+      "Vendu au voisin, j'en commande 2 cartons pour 12 par carton",
+      'Vendu au voisin, il y en commande 2 cartons pour 12 par carton',
+    ]) {
+      expect(amountsIn(words).find((a) => a.value === 12)?.each, words).toBe(false);
+    }
+    expect(amountsIn('Vendu 2 sacs à 5000 par sac').find((a) => a.value === 5000)?.each).toBe(true);
+  });
+});

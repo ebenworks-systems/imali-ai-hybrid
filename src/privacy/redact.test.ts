@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isClean, normalise, placeholderIn, placeholderLeft, redact, redactAlso, restore } from './redact';
+import { isClean, normalise, placeholderIn, placeholderLeft, redact, redactAlso, restore, SUM } from './redact';
 
 describe('redact', () => {
   it('replaces a known customer and a name the book has not seen', () => {
@@ -658,5 +658,63 @@ describe('second review round 20, third pass (EBE-11672)', () => {
     clean('1+'.repeat(20000) + '1');
     clean('1 000 + '.repeat(5000));
     expect(Date.now() - start).toBeLessThan(2000);
+  });
+});
+
+describe('second review round 21 (EBE-11682)', () => {
+  const clean = (said: string) => {
+    const red = redact(said, []);
+    return isClean(red.text, red.map, red.parts);
+  };
+
+  it('refuses a phone whose codes look like a range or a price before its local part', () => {
+    for (const said of [
+      'Call (263-4) 771-2345',
+      'Call 263-4) 771-2345',
+      'Call 1-212)555-1234',
+      'Call 1-212) 555-1234',
+      'Ph: 263-77 / 123-4567',
+      'Call 263-77, 123-4567',
+      'Call 263-77 : 123-4567',
+      'Call 27-11)555-1234',
+      'Call 27-31, 555-1234',
+      'Call 21.25)555-1234',
+      'Call 11-27)5551234',
+      'Call 212)555-1234',
+    ]) {
+      expect(clean(said), said).toBe(false);
+    }
+  });
+
+  it('lets ranges beside a count through the wider check', () => {
+    for (const said of [
+      'Price 100-150, 200 pcs',
+      'Sizes 10-12, 14-16, 3 left',
+      'Sizes 10-12, 14-16, 18 left',
+      'Sizes 38-40, 42-44 (3)',
+      '10-12, 20-30, 100',
+      'Ages 9-12, 13-15, 16-18',
+    ]) {
+      expect(clean(said), said).toBe(true);
+    }
+  });
+
+  it('takes a sum of more than 30 steps that holds as amounts', () => {
+    expect(clean(`Sales ${Array(32).fill('20').join('+')} = 640`)).toBe(true);
+    expect(clean(`Sales ${Array(150).fill('2').join(' + ')} = 300`)).toBe(true);
+  });
+
+  it('reads a long list of space thousands without an answer quickly', () => {
+    const start = Date.now();
+    `${'123 '.repeat(20000)}+ 1`.replace(SUM, ' ');
+    `1${' 000'.repeat(20000)} + 1`.replace(SUM, ' ');
+    expect(Date.now() - start).toBeLessThan(1000);
+    expect('Total 12 500 + 7 500 = 20 000'.match(SUM)?.[0]).toBe('12 500 + 7 500 = 20 000');
+  });
+
+  it('checks a run of thousands of numbers taken out as one phone without throwing', () => {
+    const red = redact(`${'123 '.repeat(20000)}+ 1`, []);
+    expect(isClean(red.text, red.map, red.parts)).toBe(true);
+    expect(isClean(`again ${'123 '.repeat(20000)}`, red.map, red.parts)).toBe(false);
   });
 });

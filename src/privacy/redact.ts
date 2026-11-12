@@ -410,11 +410,12 @@ const TIME = /^\d{1,2}:\d{2}(?::\d{2})?(?:-\d{1,2}:\d{2}(?::\d{2})?)?$/;
 /** An amount in a sum: digits with space-separated thousands ("12 500") or cents ("2.50"). */
 const SUM_NUM = String.raw`(?:\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d{1,3}(?:[^\S\n]\d{3})+|\d+(?:[.,]\d{1,2})?)`;
 /**
- * A sum with its answer ("500 + 700 = 1200", "12000 / 4 = 3000", "2*500=1000", "1,500 + 2,000 = 3,500"), of at most 30
- * steps. It never starts inside a number or a chain, so a long chain with no answer is read once, not from every number.
+ * A sum with its answer ("500 + 700 = 1200", "12000 / 4 = 3000", "2*500=1000", "1,500 + 2,000 = 3,500"), of at most 200
+ * steps. It never starts inside a number, a group of space thousands or a chain, so a long chain or a long list of
+ * thousands with no answer is read once, not from every number.
  */
-const SUM = new RegExp(
-  String.raw`(?<!\d[.,]?|\d[^\S\n]*[-+*×/][^\S\n]*)${SUM_NUM}(?:[^\S\n]*[-+*×/][^\S\n]*${SUM_NUM}){1,30}[^\S\n]*=[^\S\n]*${SUM_NUM}`,
+export const SUM = new RegExp(
+  String.raw`(?<!\d[.,]?|\d[^\S\n]|\d[^\S\n]*[-+*×/][^\S\n]*)${SUM_NUM}(?:[^\S\n]*[-+*×/][^\S\n]*${SUM_NUM}){1,200}[^\S\n]*=[^\S\n]*${SUM_NUM}`,
   'gu',
 );
 /** True when a SUM's sides are equal to the cent, times and divide first; a sum that does not hold proves nothing. */
@@ -444,10 +445,15 @@ function sumHolds(sum: string): boolean {
 }
 function loosePhone(text: string): boolean {
   const bare = text.replace(/\[[A-Z]+_\d+\]/g, ' ');
-  const plain = (g: string) => PRICE.test(g) || DATE.test(g) || g.split('/').every((x) => TIME.test(x));
-  // A range of two amounts with no 0 in front ("100-150", "10-12"), which is plain only in a run of such things:
-  // in "212)555-1234" the "555-1234" is a phone's local part.
-  const range = (g: string) => /^[1-9]\d*-[1-9]\d*$/.test(g);
+  // A range of two amounts with no 0 in front that goes up, with both sides as long ("100-150", "10-12") or a right side
+  // of at most three digits ("9-12", "50-100"). "555-1234", "771-2345" and "500-1000" are not: a short piece before a
+  // longer one is a phone's local part, and "263-77" or "27-11", which go down, are a phone's codes.
+  const range = (g: string) => {
+    const r = /^([1-9]\d*)-([1-9]\d*)$/.exec(g);
+    return !!r && Number(r[2]) > Number(r[1]) && (r[1].length === r[2].length || r[2].length <= 3);
+  };
+  const plain = (g: string) =>
+    PRICE.test(g) || DATE.test(g) || g.split('/').every((x) => TIME.test(x)) || range(g);
   for (const m of bare.matchAll(/(\+[^\S\n]*)?\d(?:[^\p{L}\p{N}\n]{0,3}\d)*/gu)) {
     if (digitCount(m[0]) < 8 || DATE.test(m[0].replace(/\s+/g, ''))) continue;
     // Amounts are never joined by an underscore, a semicolon or a bar.
@@ -463,9 +469,27 @@ function loosePhone(text: string): boolean {
     // Once sums, prices, dates, times and ranges are out, digits joined by a mark other than a space or a comma, with a
     // group of one to three digits among them, are a phone written with odd marks ("263 . 77 . 123 . 4567",
     // "263 : 77 : 123", "263*77*123*4567").
-    const ranges = groups.every((g) => plain(g) || range(g));
+    // A run with a phone's local part ("555-1234") keeps everything; elsewhere a plain group is taken out unless a mark
+    // other than a space or a comma joins it to a group that is not plain ("21.25)555 1234", "11-27)5551234").
+    const local = groups.some((g) => /^\d+-\d+$/.test(g) && !plain(g));
     let left = run;
-    for (const g of groups) if (plain(g) || (ranges && range(g))) left = left.replace(g, ' ');
+    let at = 0;
+    const spans = groups.map((g) => {
+      const from = run.indexOf(g, at);
+      at = from + g.length;
+      return { g, from, to: at, plain: plain(g) };
+    });
+    if (!local) {
+      for (const [i, s] of spans.entries()) {
+        const joined = (o: (typeof spans)[number] | undefined, between: string) =>
+          !!o && !o.plain && /[^\s,]/.test(between);
+        const prev = spans[i - 1];
+        const next = spans[i + 1];
+        if (!s.plain || joined(prev, prev ? run.slice(prev.to, s.from) : '') || joined(next, next ? run.slice(s.to, next.from) : ''))
+          continue;
+        left = left.slice(0, s.from) + ' '.repeat(s.g.length) + left.slice(s.to);
+      }
+    }
     const digits = left.match(/\d+/g) ?? [];
     if (digitCount(left) >= 8 && /[^\d\s,]/.test(left) && digits.some((d) => d.length <= 3)) return true;
   }
@@ -487,7 +511,20 @@ export function isClean(given: string, map: Record<string, string>, parts: strin
     !phonesIn(text).some((p) => looksLikePhone(p.phone)) &&
     !loosePhone(text) &&
     ![...text.matchAll(/\d{6,}/g)].some((m) => mappedPhone(phoneDigits(m[0]), map)) &&
-    whole.every((v) => !wholeWord(v).test(text)) &&
-    [...whole, ...names].every((v) => !splitName(v)?.test(text))
+    whole.every((v) => !found(() => wholeWord(v), v, text)) &&
+    [...whole, ...names].every((v) => !found(() => splitName(v), v, text))
   );
+}
+
+/**
+ * Whether a value is in the text by its pattern. A value too long for a pattern (a run of thousands of numbers taken
+ * out as one phone) is looked for as it stands, spaces evened out, so the check refuses rather than throws.
+ */
+function found(pattern: () => RegExp | null, value: string, text: string): boolean {
+  try {
+    return !!pattern()?.test(text);
+  } catch {
+    const even = (x: string) => x.replace(/\s+/g, ' ').trim().toLowerCase();
+    return even(text).includes(even(value));
+  }
 }
