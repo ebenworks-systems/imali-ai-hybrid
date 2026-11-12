@@ -74,6 +74,19 @@ describe('numbers', () => {
     expect(amountsIn('Vendu 3 bouteilles à 750 FCFA par bouteille').find((x) => x.value === 750)?.each).toBe(true);
   });
 
+  it('does not take a word said earlier, an instalment or a pack size for a price for one', () => {
+    const each = (s: string, v: number) => amountsIn(s).find((x) => x.value === v)?.each;
+    expect(each('Chaque jour je vends 30 pains, 3000 F par jour', 3000)).toBe(false);
+    expect(each('Vendu 3 sacs de riz: 10000 par Orange Money et 5000 par Orange Money', 5000)).toBe(false);
+    expect(each('Reçu 5000 par Wave de Fatou puis 3000 par Wave', 3000)).toBe(false);
+    expect(each('Vendu 3 plats à Aminata, 4500 par Aminata', 4500)).toBe(false);
+    expect(each('Moussa doit 30000, il paie 10000 F par tranche', 10000)).toBe(false);
+    expect(each('Vendu 3 sac par sac 5000', 3)).toBe(false);
+    expect(each('Vendu 2 cartons, 12 par carton, 6000 F', 12)).toBe(false);
+    const pains = r({ items: [{ name: 'pain', quantity: 30, unit_price: 100, line_total: 3000 }], total: 3000, currency: 'XOF' });
+    expect(checkWords(pains, 'Chaque jour je vends 30 pains, 3000 F par jour').ok).toBe(true);
+  });
+
   it('reads "par" before a unit as a price for one in capitals, after F or francs CFA, and before the item\'s own word', () => {
     const at5000 = (s: string) => amountsIn(s).find((x) => x.value === 5000)?.each;
     expect(at5000('VENDU 2 SACS À 5000 FCFA PAR SAC')).toBe(true);
@@ -81,6 +94,9 @@ describe('numbers', () => {
     expect(at5000('Vendu 2 sacs à 5000 francs CFA par sac')).toBe(true);
     expect(at5000('Vendu 2 sacs à 5000F chacun')).toBe(true);
     expect(at5000('Vendu 2 calebasses à 5000 FCFA par calebasse')).toBe(true);
+    expect(at5000('Vendu 2 sacs à 5000 F CFA par sac')).toBe(true);
+    expect(at5000('Vendu 2 sacs à 5000 F.CFA par sac')).toBe(true);
+    expect(at5000('Vendu 2 sacs à 5000 par sac')).toBe(true);
     const words = 'VENDU 2 SACS À 5000 FCFA PAR SAC';
     const wrong = r({ items: [{ name: 'riz', quantity: 2, unit_price: 2500, line_total: 5000 }], total: 5000, currency: 'XOF' });
     expect(checkWords(wrong, words).ok).toBe(false);

@@ -31,26 +31,50 @@ function toNumber(whole: string, cents: string | undefined, k: string | undefine
 }
 
 // A currency word that may sit between an amount and the word that makes it a price for one ("5000 FCFA chacun",
-// "5000 F par sac", "5000 francs CFA par sac").
-const CURRENCY_WORD =
-  '(?:(?:francs?\\s+CFA|dollars?|rands?|shillings?|rupees?|francs?|euros?|naira|cedis?|bob|[A-Z]{3}|CFA|FCFA|USD|ZiG|F(?![\\p{L}\\p{N}_]))\\s*)?';
+// "5000 F par sac", "5000 F CFA par sac", "5000 francs CFA par sac"). Codes are listed, not [A-Z]{3}, which the i flag
+// would let match any three-letter word ("3 sac par sac").
+const CURRENCY =
+  '(?:francs?\\s+CFA|F\\.?\\s*CFA|dollars?|rands?|shillings?|rupees?|francs?|euros?|naira|cedis?|bob|FCFA|CFA|ZiG|' +
+  'USD|ZAR|KES|INR|XOF|XAF|ZWG|ZWL|NGN|GHS|EUR|GBP|TZS|UGX|RWF|MWK|ZMW|BWP|MZN|ETB|EGP|MAD|F(?![\\p{L}\\p{N}_]))';
+const CURRENCY_WORD = `(?:${CURRENCY}\\s*)?`;
 
-// French "par" is "for each" before a unit ("par sac", "par bouteille") but "by" or "a" before anything else: a person
-// ("par Awa", "par mon frère"), a way of paying ("par Orange Money", "par momo") or a time ("par jour"). Those have no
-// end, so "par" counts only before a shop unit from this list, or before a word the owner already used for the item
-// ("3 bouteilles ... par bouteille"), in any case.
+// French "par" is "for each" before a unit ("par sac", "par bouteille") but "by", "a" or "in" before anything else: a
+// person ("par Awa", "par mon frère"), a way of paying ("par Orange Money", "par momo"), a time ("par jour") or an
+// instalment ("par tranche"). Those have no end, so "par" counts only before a shop unit from this list, or before the
+// word the owner used for the item ("3 bouteilles ... par bouteille"), in any case.
 const PAR_UNITS =
-  /^(?:sacs?|bouteilles?|kilos?|kg|grammes?|g|litres?|l|pi[eè]ces?|unit[ée]s?|paquets?|cartons?|bo[iî]tes?|sachets?|tas|bottes?|douzaines?|plats?|assiettes?|morceaux?|morceau|tasses?|verres?|m[eè]tres?|caisses?|bidons?|seaux?|seau|tranches?|portions?|lots?|rouleaux?|rouleau|boules?|miches?|pains?|[oœ]e?ufs?|t[eê]tes?|personnes?|canettes?|cannettes?|flacons?|pots?|barres?|plaquettes?)$/iu;
+  /^(?:sacs?|bouteilles?|kilos?|kg|grammes?|g|litres?|l|pi[eè]ces?|unit[ée]s?|paquets?|cartons?|bo[iî]tes?|sachets?|tas|bottes?|douzaines?|plats?|assiettes?|morceaux?|morceau|tasses?|verres?|m[eè]tres?|caisses?|bidons?|seaux?|seau|portions?|rouleaux?|rouleau|boules?|miches?|pains?|[oœ]e?ufs?|t[eê]tes?|personnes?|canettes?|cannettes?|flacons?|pots?|barres?|plaquettes?)$/iu;
 
-function parForOne(after: string, before: string): boolean {
-  const m = new RegExp(`^\\s*${CURRENCY_WORD}par\\s+(\\p{L}+)(?![\\p{L}\\p{N}_'’])`, 'iu').exec(after);
+// A money mark stuck before the digits ("R15", "$5", "KSh 300"); NUMBER also takes a short word there ("riz 15000").
+const PRICE_MARK = new RegExp(`^(?:@\\s*)?(?:${CURRENCY}|R|Rs|KSh|Ksh|\\$|€|£|₹)$`, 'iu');
+
+const NUMBER_WORDS = Object.keys(WORDS).join('|');
+
+/** The words the owner used for items: the word right after a count ("3 sacs", "trois bouteilles de lait"). */
+function itemWords(text: string): Set<string> {
+  const out = new Set<string>();
+  const re = new RegExp(`(?<![\\p{L}\\p{N}])(?:\\d+|${NUMBER_WORDS})\\s+(?:de\\s+|d['’])?(\\p{L}+)`, 'giu');
+  for (const m of text.matchAll(re)) {
+    // A word after "par" is not an item ("par jour" in "3000 F par jour").
+    if (/par\s+$/i.test(text.slice(0, m.index))) continue;
+    out.add(m[1].toLowerCase().replace(/s$/, ''));
+  }
+  return out;
+}
+
+/**
+ * Whether "par <unit>" after an amount makes it a price for one. A bare count before "par" is a pack size, not a
+ * price ("2 cartons, 12 par carton, 6000 F"), so the amount must be priced: a currency between it and "par", a
+ * currency stuck to it, or "à", "at" or "pour" before it.
+ */
+function parForOne(after: string, before: string, stuck: boolean): boolean {
+  const m = new RegExp(`^\\s*(${CURRENCY}\\s*)?par\\s+(\\p{L}+)(?![\\p{L}\\p{N}_'’])`, 'iu').exec(after);
   if (!m) return false;
-  const word = m[1].toLowerCase();
+  if (!m[1] && !stuck && !/(?:^|[^\p{L}])(?:à|a|at|pour|for)\s*$/iu.test(before)) return false;
+  const word = m[2].toLowerCase();
   if (PAR_UNITS.test(word)) return true;
-  // The item's own word, singular or plural: "sacs" before "par sac". Four letters at least, so "par mon" does not
-  // match "montant".
   const stem = word.replace(/s$/, '');
-  return stem.length >= 4 && (before.toLowerCase().match(/\p{L}+/gu) ?? []).some((w) => w.replace(/s$/, '') === stem);
+  return stem.length >= 3 && itemWords(before).has(stem);
 }
 
 /** Every number written in digits, with whether the text marks it as a price for one unit. */
@@ -64,7 +88,7 @@ export function amountsIn(text: string): Amount[] {
     const each =
       m[0].trimStart().startsWith('@') ||
       new RegExp(`^\\s*${CURRENCY_WORD}(?:each|per|apiece|a piece|chacun|chacune|l['’]unit[ée]|la pièce|kila mmoja|kila moja)(?![\\p{L}\\p{N}_])`, 'iu').test(after) ||
-      parForOne(after, text.slice(0, index)) ||
+      parForOne(after, text.slice(0, index), PRICE_MARK.test(m[0].slice(0, m[0].search(/\d/)).trim())) ||
       /@\s*$/.test(before);
     out.push({ value, each, index });
   }
