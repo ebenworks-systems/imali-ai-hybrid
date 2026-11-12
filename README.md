@@ -1,16 +1,22 @@
 # Imali AI book: the shop book that reads on the device
 
-Imali AI runs sales, stock and books on WhatsApp for shop owners and merchants, along with their suppliers, their funders and groups of companies. This repository is a Chrome web app built for the #BuildHybridAI hackathon. It is a counter book that a shop owner writes in plain words. Gemini Nano reads each entry on the device through Firebase AI Logic, plain code checks every reading before it counts in the totals, and a cloud Gemini model is asked only when the device's reading fails a check. Customers' names are taken out before any words leave the device, and an entry made offline waits for the connection.
+Imali AI runs sales, stock and books on WhatsApp for shop owners and merchants, along with their suppliers, their funders and groups of companies. This repository is a Chrome web app built for the #BuildHybridAI hackathon. It is a counter book that a shop owner writes in plain words. Gemini Nano reads each entry on the device through Firebase AI Logic, plain code checks every reading before it counts in the totals, and a cloud Gemini model is asked when the device's reading fails a check, when Gemini Nano does not read the language, or when the device has no Nano. Customers' names are taken out before any words leave the device, and an entry made offline waits for the connection.
 
-This README is for the hackathon's judges and for developers who want to run the app. The first sections say what it does and why; the code names are in the Firebase table and the run instructions.
+This README is for the hackathon's judges and for developers who want to run the app.
 
-![The book after six entries, a receipt photo and one question](docs/screenshots/book-1280.png)
+Try it at [imali-ai-hybrid.web.app](https://imali-ai-hybrid.web.app) in Chrome on a computer. [Use it](#use-it) says what Chrome needs for Gemini Nano.
+
+![The hosted copy after the six entries and four questions: four entries read on the device, two with help from the cloud, and the answer to "Did I make money this week?"](docs/screenshots/book-1280.png)
 
 The same screen at phone width is in [docs/screenshots/book-390.png](docs/screenshots/book-390.png).
 
+## What was built during the hackathon
+
+All the code in this repository was written from 12 November 2026, inside the contest period. Imali AI itself was built, tested and piloted with users from April 2026, and launched on 21 October 2026, as a WhatsApp product that runs its model calls in the cloud. None of that product's code is in this repository. From it we carried over the brand: the Imali AI logo, and the Barlow font files, which are third-party fonts under their own licence. We also reused the product idea of a book kept from plain words and what we learned about how shop owners write their entries. The on-device reading, the checks, the name removal, the routing between Nano and the cloud, the offline queue, the question answering and this interface are new.
+
 ## Why a shop book needs both models
 
-A small shop's book holds its customers' names and what each one owes. Many owners still keep it in a paper exercise book. A cloud app would cost them data and stop working where the signal drops, and it would send their customers' names to a server. A model that runs on the device avoids those costs. But a small model also makes mistakes with money, and a book that is wrong one time in ten is worse than paper.
+A shop's book holds its customers' names and what each one owes, and many owners still keep it in a paper exercise book. A model on the device reads an entry where the signal drops, uses no data and keeps those names on the device. But a small model also makes mistakes with money, and a book that is often wrong is worse than paper.
 
 We saw this on the first day. On 12 November 2026 Gemini Nano read "Sold two bags of maize meal for 120 rand each" as two bags at R60 each, a total of R120 instead of R240. The arithmetic of its answer was consistent, so a sum check alone would have passed it. The words said "each", and the book's checks caught it there.
 
@@ -19,8 +25,8 @@ So this book never trusts a model with arithmetic, and it never sends the whole 
 ## How an entry is read
 
 1. Gemini Nano reads it on the device. The app asks Firebase AI Logic to use the model on the device only, when Chrome's language detector names a language Nano reads or is unsure, as it often is on a short message. For a receipt photo the app lets Firebase choose: Nano when the device has it, the cloud model when it does not. A supplier's receipt carries the supplier's printed details and no customer's name, so the photo goes as it is. Both models are given the same form to fill in (the kind of entry, each item's quantity, price and line total, the total, the currency, the person and when they will pay), so their answers can be checked the same way.
-2. Code checks the reading. The checks run in microseconds and work offline. Each line's quantity times price must equal its line total, and the lines must add up to the total. A price the words mark with "each", "per", "@", "chacun" or "kila mmoja" must be a price for one item. Every number must come from the words or follow from them, and the currency must match the one the words name. A sale the words say is paid later must be recorded on credit, and a debt or payment must name the person.
-3. The cloud gives a second opinion only when needed. If a check fails, or Chrome is sure the words are in a language Nano does not read here (Kiswahili and isiZulu in our tests), the words go to the cloud model. Before they leave the device, names and phone numbers are swapped for placeholders such as `[PERSON_1]`, and swapped back when the answer returns. The second opinion is told which checks failed, and its answer has to pass the same checks. If it does not, the entry is marked "Needs you" and stays out of the totals. If the cloud model asked first gives no usable answer within 60 seconds (120 for a photo), the other cloud model is asked once, the two calls together never take more than 90 seconds (180 for a photo), and the step says so. We added this on 12 November, when gemini-3.8-flash on the free tier answered "high demand" or nothing for three minutes. An answer that still holds a placeholder instead of a name is not counted either.
+2. Code checks the reading. The checks are plain code on the device, so they need no model call and work offline. Each line's quantity times price must equal its line total, and the lines must add up to the total. A price the words mark with "each", "per", "@", "chacun" or "kila mmoja" must be a price for one item. Every number must come from the words or follow from them, and the currency must match the one the words name. A sale the words say is paid later must be recorded on credit, and a debt or payment must name the person.
+3. The cloud gives a second opinion only when needed. If a check fails, or Chrome is sure the words are in a language Nano does not read here (Kiswahili and isiZulu in our tests), the words go to the cloud model. Before they leave the device, names and phone numbers are swapped for placeholders such as `[PERSON_1]`, and swapped back when the answer returns. The second opinion is told which checks failed, and its answer has to pass the same checks. If it does not, the entry is marked "Needs you" and stays out of the totals. If the cloud model asked first gives no usable answer within 60 seconds (120 for a photo), the other cloud model is asked once, the two calls together never take more than 90 seconds (180 for a photo), and the step says so. An answer that still holds a placeholder instead of a name is not counted either.
 4. Offline, the entry waits. When the cloud cannot be reached, the device's reading is kept with the reason it waits, and it stays out of the totals. When Chrome reports the connection is back, the waiting entries go for their second opinion.
 5. Questions are answered by code. "How much does Thandi owe?" goes to Nano, which turns it into a small query: what to work out, for whom and for which period. Code adds up the figures from the book, which is stored in the browser on the device. When the cloud has to read a question, it gets the question alone, with names removed, and never a record.
 
@@ -47,7 +53,7 @@ The device runs were on 12 November 2026, in Chrome 157 on a Linux machine with 
 | Paid R200 for the electricity token | Expense, R200. Checked, in 7 s. |
 | Sold two bags of maize meal for 120 rand each | 2 at R60 in one run: the "each" check failed, so it waited for the second opinion. Right (R240) in a later run. 7 s. |
 | Vendu 2 sacs de riz à 5000 FCFA chacun à Awa, elle paie samedi | On credit, CFA 10,000, Awa, samedi. Checked, in 12 s. |
-| The sample receipt photo (four lines) | Stock bought, R975, every line right. Checked, in 20 s. |
+| The receipt photo (four lines) | Stock bought, R975, every line right. Checked, in 20 s. |
 | How much does Thandi owe? | Thandi owes you R15. 4 s. |
 | Who owes me money? | 2 people owe you R15 and CFA 10,000. 4 s. |
 
@@ -60,7 +66,7 @@ The cloud steps ran the same evening against the Firebase project, with App Chec
 | The same second opinion with gemini-3.8-flash asked first | No answer within 60 s, so gemini-3.5-flash-lite was asked and gave R240, 67 s in all. That is why gemini-3.6-flash is the default. |
 | A call to AI Logic without an App Check token | Refused with 401, "Firebase App Check token is invalid". |
 
-In a second run of the six examples that evening, Gemini Nano read all five it can read correctly on the device, the maize meal included, and only the Kiswahili entry left the device. Its answers vary from run to run, which is why every reading goes through the checks.
+In a second run of the six entries that evening, Gemini Nano read all five it can read correctly on the device, the maize meal included, and only the Kiswahili entry left the device. On the hosted copy at 23:06 KST, with App Check tokens from reCAPTCHA Enterprise, all six were checked again: Nano read four on the device in 7.7 to 17 s, its maize meal reading failed a check once more and a gemini-3.6-flash second opinion fixed it in 9.3 s, and gemini-3.5-flash-lite read the Kiswahili entry, Juma's name removed, in 10 s. The four questions took 3.5 to 5.0 s on the device. Nano's answers vary from run to run, which is why every reading goes through the checks.
 
 ## Run it
 
@@ -80,17 +86,15 @@ On your own machine, `npm run dev` uses App Check's debug provider: copy the deb
 
 ## Use it
 
-1. Open it in Chrome on a computer: Windows 10 or 11, macOS 13 or later, Linux, or a Chromebook Plus, with at least 22 GB free disk and either a graphics card with more than 4 GB of memory or 16 GB of RAM and 4 processor cores ([Chrome's requirements](https://developer.chrome.com/docs/ai/get-started)).
+1. Open [imali-ai-hybrid.web.app](https://imali-ai-hybrid.web.app) in Chrome on a computer: Windows 10 or 11, macOS 13 or later, Linux, or a Chromebook Plus, with at least 22 GB free disk and either a graphics card with more than 4 GB of memory or 16 GB of RAM and 4 processor cores ([Chrome's requirements](https://developer.chrome.com/docs/ai/get-started)).
 2. If the header says Gemini Nano is not downloaded, click **Get it**. The download runs once and then works offline. Without Nano, every reading goes to the cloud with names removed, and the app still works.
-3. Click the example entries in order, then **Receipt photo** and **Use a sample receipt**, then **Ask the book**.
-4. To see the offline queue, turn the network off in Chrome's developer tools (Network, Offline), add the maize meal example, then turn it back on.
-
-## What was built during the hackathon
-
-Every file in this repository was written from 12 November 2026, inside the contest period. Imali AI itself was built, tested and piloted with users from April 2026, and launched on 21 October 2026, as a WhatsApp product that runs its model calls in the cloud. None of that product's code is in this repository. From it we reused the brand (the logo and the Barlow font files), the product idea of a book kept from plain words, and what we learned about how shop owners write their entries. The on-device reading, the checks, the name removal, the routing between Nano and the cloud, the offline queue, the question answering and this interface are new.
+3. Click the six entries under the box in order, then **Receipt photo** and **Try a supplier's receipt**, then **Ask the book** and its questions.
+4. To see the offline queue, turn the network off in Chrome's developer tools (Network, Offline), add the maize meal entry, then turn it back on.
 
 ## Licence
 
 The code is under the Apache License 2.0 (`LICENSE`). The Barlow fonts are under the SIL Open Font License 1.1 (`public/fonts/OFL.txt`). The Imali AI name and logo are not covered by either licence.
 
 Records you own.
+
+An Ebenworks product.
