@@ -151,9 +151,10 @@ const looksLikePhone = (s: string) => /\D/.test(s) || /^0/.test(s);
 /**
  * The placeholder of the owner's phone that these digits are, wholly or in part (six digits or more), or undefined.
  * The device prints a number it read as plain digits, and its number reader may split "077 123 4567" into 77123456.
- * A value of fewer than ten plain digits with no 0 or + in front may be an amount ("25000000"), so it matches whole, or
- * in part only when the part has nine digits or more: "5000000" is another amount. A phone written with its country
- * code ("263771234567") still takes any part of six digits or more ("77123456").
+ * A value of fewer than eleven plain digits with no 0 or + in front may be an amount ("25000000", "1500000000"), so it
+ * matches whole, or in part only when the part has nine digits or more: "5000000" is another amount. A value of eleven
+ * plain digits or more is a phone written with its country code ("263771234567"), which takes a part of eight digits
+ * or more, the device's number ("77123456"), but not "500000" of a large amount.
  */
 function mappedPhone(digits: string, map: Record<string, string>): string | undefined {
   if (digits.length < 6) return undefined;
@@ -161,8 +162,10 @@ function mappedPhone(digits: string, map: Record<string, string>): string | unde
     const pd = phoneDigits(v);
     if (!k.startsWith('[PHONE_') || pd.length < 6) return false;
     if (pd === digits) return true;
-    const amount = /^[1-9]\d*$/.test(v.trim()) && pd.length < 10;
-    return (!amount || Math.min(pd.length, digits.length) >= 9) && (pd.includes(digits) || digits.includes(pd));
+    // Plain digits: under eleven an amount ("1500000000"), from eleven a phone with its country code ("26771234567").
+    const plainDigits = /^[1-9]\d*$/.test(v.trim());
+    const floor = !plainDigits ? 6 : pd.length < 11 ? 9 : 8;
+    return Math.min(pd.length, digits.length) >= floor && (pd.includes(digits) || digits.includes(pd));
   })?.[0];
 }
 
@@ -244,8 +247,9 @@ export function redact(text: string, known: string[] = []): Redacted {
     if (!had) parts.add(key);
     return key;
   };
-  // Longest names first, so "Thandi Moyo", whole or written split, goes before "Thandi".
-  for (const name of [...known].filter(Boolean).sort((a, b) => b.length - a.length)) {
+  // Longest names first, so "Thandi Moyo", whole or written split, goes before "Thandi". A name is matched in the same
+  // form as the text ("aimé" stored with a combining accent still matches).
+  for (const name of known.filter(Boolean).map(normalise).sort((a, b) => b.length - a.length)) {
     if (wholeWord(name).test(out)) swap(name);
     out = swapSplitName(out, name, partKey);
   }
@@ -291,7 +295,7 @@ export function redactAlso(text: string, red: Redacted, known: string[] = []): s
   // from. A split part's placeholder is not a name here: "never" stays in "price never given".
   const names = new Map<string, string>();
   for (const [k, v] of Object.entries(red.map)) if (v && !parts.has(k)) names.set(v.toLowerCase(), v);
-  for (const n of known) if (n) names.set(n.toLowerCase(), n);
+  for (const n of known.map(normalise)) if (n) names.set(n.toLowerCase(), n);
   for (const name of [...names.values()].sort((a, b) => b.length - a.length)) {
     if (wholeWord(name).test(out)) out = out.replace(wholeWord(name, 'giu'), keyFor(name, false));
     out = swapSplitName(out, name, (part) => keyFor(part, true));
@@ -410,14 +414,19 @@ function loosePhone(text: string): boolean {
     // Amounts are never joined by an underscore, a semicolon or a bar.
     if (m[1] || /[_;|]/.test(m[0])) return true;
     const groups = m[0].split(/[^\d.,/:-]+|,(?!\d{2}(?!\d))/).filter((g) => /\d/.test(g));
-    // A group opening with 0 is a phone's, unless it is a price, a date, a time or a two-digit day or count ("05").
-    if (groups.some((g) => /^0\d/.test(g) && !/^0\d$/.test(g) && !plain(g))) return true;
-    // Once prices, dates and times are out, digits joined by a mark other than a space or a comma, with a group of one
-    // to three digits among them, are a phone written with odd marks ("263 . 77 . 123 . 4567", "263 : 77 : 123").
+    // A group opening with 0 is a phone's, unless it is a price, a date, a time or a two-digit day or count ("05") in
+    // a run of fewer than ten digits: "06, 12, 34, 56, 78" is a phone written in pairs, "01, 02, 03, 04" four days.
+    const pairsOk = digitCount(m[0]) < 10;
+    if (groups.some((g) => /^0\d/.test(g) && !(pairsOk && /^0\d$/.test(g)) && !plain(g))) return true;
+    // Once prices, dates and times are out, digits joined by a dot, a slash, a colon or a double dash, with a group of
+    // one to three digits among them, are a phone written with odd marks ("263 . 77 . 123 . 4567", "263 : 77 : 123").
+    // A sum ("500 + 700 = 1200", "12000 / 4 = 3000") and a range ("100-150, 200-250") are not: a single dash, a plus
+    // or a times sign is no odd mark, and a run with an equals sign is sums.
+    if (m[0].includes('=')) continue;
     let left = m[0];
     for (const g of groups) if (plain(g)) left = left.replace(g, ' ');
     const digits = left.match(/\d+/g) ?? [];
-    if (digitCount(left) >= 8 && /[^\d\s,]/.test(left) && digits.some((d) => d.length <= 3)) return true;
+    if (digitCount(left) >= 8 && /[./:]|\p{Pd}[^\S\n]*\p{Pd}/u.test(left) && digits.some((d) => d.length <= 3)) return true;
   }
   return false;
 }
@@ -430,13 +439,14 @@ function loosePhone(text: string): boolean {
 export function isClean(given: string, map: Record<string, string>, parts: string[] = [], known: string[] = []): boolean {
   const text = normalise(given);
   const skip = new Set(parts);
-  const whole = Object.entries(map).filter(([k]) => !skip.has(k)).map(([, v]) => v);
+  const whole = Object.entries(map).filter(([k]) => !skip.has(k)).map(([, v]) => normalise(v));
+  const names = known.map(normalise);
   return (
     // No number written as a phone, and no run of the owner's phone digits, whole or in part.
     !phonesIn(text).some((p) => looksLikePhone(p.phone)) &&
     !loosePhone(text) &&
     ![...text.matchAll(/\d{6,}/g)].some((m) => mappedPhone(phoneDigits(m[0]), map)) &&
     whole.every((v) => !wholeWord(v).test(text)) &&
-    [...whole, ...known].every((v) => !splitName(v)?.test(text))
+    [...whole, ...names].every((v) => !splitName(v)?.test(text))
   );
 }

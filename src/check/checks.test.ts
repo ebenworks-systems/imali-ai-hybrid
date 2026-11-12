@@ -351,3 +351,17 @@ describe('round 19 third pass (EBE-11663)', () => {
     expect(amountsIn('Vendu à une cliente, commande 2 cartons pour 12 par carton').find((a) => a.value === 12)?.each).toBe(false);
   });
 });
+
+describe('second review round 20 (EBE-11672)', () => {
+  it('ends the sale clause at a verb after an object pronoun ("il en commande")', () => {
+    for (const words of [
+      'Vendu au voisin, il en commande 2 cartons pour 12 par carton',
+      'Vendu à Awa, elle le commande 2 cartons pour 12 par carton',
+      'Vendu au voisin, il la paye 2 cartons pour 12 par carton',
+      'Vendu à Awa et elle les paye 2 cartons pour 12 par carton',
+    ]) {
+      expect(amountsIn(words).find((a) => a.value === 12)?.each, words).toBe(false);
+    }
+    expect(amountsIn('Vendu sur commande 2 sacs pour 5000 par sac').find((a) => a.value === 5000)?.each).toBe(true);
+  });
+});

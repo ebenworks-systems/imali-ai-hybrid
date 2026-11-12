@@ -556,3 +556,49 @@ describe('round 19, third pass (EBE-11663)', () => {
     expect(redactAlso('Quantity 77123456 is too large', own)).toBe('Quantity [PHONE_1] is too large');
   });
 });
+
+describe('second review round 20 (EBE-11672)', () => {
+  it('refuses a phone written in comma-joined pairs that opens with 0', () => {
+    for (const said of ['tel 06, 12, 34, 56, 78', 'tel 07 , 07 , 12 , 34 , 56']) {
+      const red = redact(said, []);
+      expect(isClean(red.text, red.map, red.parts), said).toBe(false);
+    }
+    const days = redact('Sold 01, 02, 03, 04 bread', []);
+    expect(isClean(days.text, days.map, days.parts)).toBe(true);
+  });
+
+  it('lets sums and ranges of amounts through the wider check', () => {
+    for (const said of [
+      'Sold 500 + 700 + 300 = 1500',
+      'Total 1200 + 350 = 1550',
+      'Change 1000 - 250 = 750 to 2 people',
+      'Shared 12000 / 4 = 3000 each',
+      'Sold 3 for 150: 450 + 300 = 750',
+      '2*500=1000 total',
+      'Prices 100-150, 200-250',
+      'Sold kids shoes sizes 10-12, 13-15',
+    ]) {
+      const red = redact(said, []);
+      expect(isClean(red.text, red.map, red.parts), said).toBe(true);
+    }
+    const phone = redact('tel 263 : 77 : 123 : 4567', []);
+    expect(isClean(phone.text, phone.map, phone.parts)).toBe(false);
+  });
+
+  it('does not give a large amount taken out as a phone to a smaller amount inside it', () => {
+    const red = redact('Paid 1500000000 for stock', []);
+    expect(redactAlso('Total 500000 does not match 3 x 150000', red)).toBe('Total 500000 does not match 3 x 150000');
+    const owe = redact('Paid 1500000000 for stock, owe 500000', []);
+    expect(isClean(owe.text, owe.map, owe.parts)).toBe(true);
+    const own = redact('Call 22670123456', []);
+    expect(redactAlso('Quantity 70123456 is too large', own)).toBe('Quantity [PHONE_1] is too large');
+  });
+
+  it('matches a known name stored with a combining accent', () => {
+    const name = 'aimé';
+    const red = redact(`paid ${name} 50 today`, [name]);
+    expect(red.text).toBe('paid [PERSON_1] 50 today');
+    expect(isClean(`Customer ${name} owes 50`, red.map, red.parts, [name])).toBe(false);
+    expect(redactAlso(`Customer ${name} owes 50`, red, [name])).toBe('Customer [PERSON_1] owes 50');
+  });
+});
