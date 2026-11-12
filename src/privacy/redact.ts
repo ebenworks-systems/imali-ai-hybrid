@@ -28,12 +28,13 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * "tomorrow", nor "Juma" in "Ijumaa" (Kiswahili for Friday), nor "Phone" inside a "[PHONE_1]" placeholder; "Aimé" is
  * found before a comma, and "Thandi" in "Thandi2" and "thandi_m", since a digit or an underscore is not part of a name.
  * Only the placeholder shape (an underscore, digits and "]") is skipped, so a name joined by an underscore still goes,
- * and the parts of a full name match across an underscore, a dot or several spaces ("thandi_moyo" for "Thandi Moyo").
+ * and the parts of a full name match across spaces or one underscore, dot or hyphen ("thandi_moyo" for "Thandi Moyo").
  */
 export function wholeWord(text: string, flags = 'iu'): RegExp {
-  // A full name may be written as one handle ("thandi_moyo", "thandi.moyo") or with more than one space.
+  // A full name may be written as one handle ("thandi_moyo", "thandi.moyo") or "thandi-moyo", or with more than
+  // one space; one joiner only, so "Thandi. Moyo" across a full stop stays two names.
   if (!text.trim()) return new RegExp('(?!)', flags); // a blank name matches nothing
-  const body = escape(text.trim()).split(/\s+/).join('[\\s_.]+');
+  const body = escape(text.trim()).split(/\s+/).join('(?:\\s+|[_.-])');
   return new RegExp(`(?<!\\p{L})${body}(?!\\p{L}|_\\d+\\])`, flags);
 }
 

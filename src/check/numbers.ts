@@ -66,15 +66,16 @@ function itemWords(text: string): Set<string> {
 /**
  * Whether "par <unit>" after an amount makes it a price for one. A bare count before "par" is a pack size, not a
  * price ("2 cartons, 12 par carton, 6000 F"), so the amount must be priced: a currency between it and "par", a
- * currency stuck to it, or "à", "at" or "pour" before it.
+ * currency stuck to it, or "à" or "at" before it.
  */
 function parForOne(after: string, before: string, prefix: string): boolean {
   const m = new RegExp(`^\\s*(${CURRENCY}\\s*)?par\\s+(\\p{L}+)(?![\\p{L}\\p{N}_'’])`, 'iu').exec(after);
   if (!m) return false;
-  // NUMBER takes a short word typed before the digits into its match ("pour 5000", "at 5000"), so read it there too.
+  // NUMBER takes a short word typed before the digits into its match ("at 5000"), so read it there too.
   // A bare "a" is not taken: in "il y a 12 par carton" it is the verb, and a pack size is not a price.
-  const priced = PRICE_MARK.test(prefix) || /^(?:at|pour|for)$/iu.test(prefix);
-  if (!m[1] && !priced && !/(?:^|[^\p{L}])(?:à|a|at|pour|for)\s*$/iu.test(before)) return false;
+  // "pour" and "for" are left out: "Commande pour 12 par carton" is a pack size, so they need a currency after the amount.
+  const priced = PRICE_MARK.test(prefix) || /^at$/iu.test(prefix);
+  if (!m[1] && !priced && !/(?:^|[^\p{L}])(?:à|at)\s*$/iu.test(before)) return false;
   const word = m[2].toLowerCase();
   if (PAR_UNITS.test(word)) return true;
   const stem = word.replace(/[sx]$/, '');

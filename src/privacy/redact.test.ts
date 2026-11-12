@@ -56,11 +56,16 @@ describe('redact', () => {
   });
 
   it('takes out a known full name written as one handle', () => {
-    for (const handle of ['thandi_moyo', 'thandi.moyo', 'Thandi  Moyo']) {
+    for (const handle of ['thandi_moyo', 'thandi.moyo', 'thandi-moyo', 'Thandi  Moyo']) {
       const r = redact(`Sold 2 Cokes to ${handle}`, ['Thandi Moyo']);
       expect(r.text.toLowerCase()).not.toContain('moyo');
       expect(isClean(`Sold 2 Cokes to ${handle}`, r.map)).toBe(false);
     }
+  });
+
+  it('keeps two names apart across a full stop', () => {
+    const r = redact('Paid Thandi. Moyo owes R30', ['Thandi Moyo']);
+    expect(Object.values(r.map)).not.toContain('Thandi Moyo');
   });
 
   it('ignores a blank known name', () => {
