@@ -22,6 +22,10 @@ export async function allEntries(): Promise<Entry[]> {
   return list.reverse();
 }
 
+export async function getEntry(id: string): Promise<Entry | undefined> {
+  return (await (await db()).get('entries', id)) as Entry | undefined;
+}
+
 export async function saveEntry(e: Entry): Promise<void> {
   await (await db()).put('entries', e);
 }

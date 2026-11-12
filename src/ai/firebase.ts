@@ -6,30 +6,34 @@ import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-ch
 import { getAI, GoogleAIBackend, type AI } from 'firebase/ai';
 import { fetchAndActivate, getRemoteConfig, getValue, type RemoteConfig } from 'firebase/remote-config';
 
-const env = import.meta.env;
+// Each value is read by its full name, so Vite puts only that value into the build. Never copy import.meta.env into
+// a variable: Vite would then ship every VITE_ value it loaded, whatever the code uses.
 
 /** True when a real Firebase project is configured. Without one the app still reads on the device. */
-export const cloudConfigured = Boolean(env.VITE_FIREBASE_API_KEY && env.VITE_FIREBASE_PROJECT_ID && env.VITE_FIREBASE_APP_ID);
+export const cloudConfigured = Boolean(
+  import.meta.env.VITE_FIREBASE_API_KEY && import.meta.env.VITE_FIREBASE_PROJECT_ID && import.meta.env.VITE_FIREBASE_APP_ID,
+);
 
 const config = {
-  apiKey: env.VITE_FIREBASE_API_KEY || 'not-set',
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || 'not-set.firebaseapp.com',
-  projectId: env.VITE_FIREBASE_PROJECT_ID || 'not-set',
-  appId: env.VITE_FIREBASE_APP_ID || '1:0:web:0',
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || '0',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'not-set',
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'not-set.firebaseapp.com',
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'not-set',
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:0:web:0',
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '0',
 };
 
 export const app: FirebaseApp = initializeApp(config);
 
-// App Check: reCAPTCHA Enterprise on the hosted site; the debug provider on a developer's own machine, where the
-// developer registers the printed debug token in the Firebase console (never committed, never shipped).
+// App Check: reCAPTCHA Enterprise on the hosted site; the debug provider only in the development server, where the
+// developer registers the printed debug token in the Firebase console. A production build drops this branch and the
+// token with it, and the token belongs in .env.development.local, which a production build never loads.
 if (cloudConfigured) {
-  if (env.DEV || env.VITE_APPCHECK_DEBUG === 'true') {
+  if (import.meta.env.DEV) {
     (self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN: boolean | string }).FIREBASE_APPCHECK_DEBUG_TOKEN =
-      env.VITE_APPCHECK_DEBUG_TOKEN || true;
+      import.meta.env.VITE_APPCHECK_DEBUG_TOKEN || true;
   }
   initializeAppCheck(app, {
-    provider: new ReCaptchaEnterpriseProvider(env.VITE_RECAPTCHA_ENTERPRISE_SITE_KEY || 'not-set'),
+    provider: new ReCaptchaEnterpriseProvider(import.meta.env.VITE_RECAPTCHA_ENTERPRISE_SITE_KEY || 'not-set'),
     isTokenAutoRefreshEnabled: true,
   });
 }

@@ -14,7 +14,7 @@ export interface CheckResult {
 
 /** Words that say the customer pays later, in the languages the book reads. */
 const CREDIT =
-  /\b(on credit|owes?|will pay|pay later|pays? (?:on |next |by )?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|later|month[- ]end)|à crédit|paiera|paie (?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|demain)|atalipa|atanilipa|kwa mkopo)\b/i;
+  /(?<![\p{L}\p{N}_])(on credit|owes?|will pay|pay later|pays? (?:on |next |by )?(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|later|month[- ]end)|à crédit|paiera|paie (?:lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche|demain)|atalipa|atanilipa|kwa mkopo)(?![\p{L}\p{N}_])/iu;
 
 const money = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
 

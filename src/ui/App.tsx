@@ -16,7 +16,7 @@ import {
   readWords,
   type Context,
 } from '../ai/hybrid';
-import { allEntries, clearBook, deleteEntry, getMeta, saveEntry, setMeta } from '../book/db';
+import { allEntries, clearBook, deleteEntry, getEntry, getMeta, saveEntry, setMeta } from '../book/db';
 import { answer, fmt, type Answer } from '../book/query';
 import type { Entry, Hop, Kind, Query, Reading, Status } from '../book/types';
 import { checkReceipt, checkWords } from '../check/checks';
@@ -281,6 +281,10 @@ export function App() {
   const [callsToday, setCallsToday] = useState(0);
   const [removed, setRemoved] = useState<Entry | null>(null);
   const retrying = useRef(false);
+  /** Set while a read or a question runs, so a second Enter in the textarea cannot save the same entry twice. */
+  const working = useRef(false);
+  /** Set when the connection came back during a read; the waiting entries are checked as soon as it ends. */
+  const retryAfter = useRef(false);
 
   const refresh = useCallback(async () => {
     setEntries(await allEntries());
@@ -320,6 +324,10 @@ export function App() {
   /** Entries kept on the device while the cloud was out of reach get their check as soon as it can be asked. */
   const checkWaiting = useCallback(async () => {
     const c = ctxRef.current;
+    if (working.current) {
+      retryAfter.current = true;
+      return;
+    }
     if (retrying.current || cloudBlocked(c)) return;
     const waiting = (await allEntries()).filter((e) => e.status === 'waiting' && e.source === 'words').reverse();
     if (!waiting.length) return;
@@ -328,7 +336,8 @@ export function App() {
       for (const [i, e] of waiting.entries()) {
         setBusy(`Checking ${i + 1} of ${waiting.length} entries that waited`);
         const done = await finishWords({ ...e, hops: [...e.hops] }, { ...c, onStep: undefined });
-        await saveEntry(done);
+        // The owner may have removed the entry or cleared the book while the cloud was answering.
+        if (await getEntry(e.id)) await saveEntry(done);
         if (cloudBlocked(c)) break;
       }
     } catch (e) {
@@ -355,6 +364,8 @@ export function App() {
   }, [checkWaiting]);
 
   const run = async (work: () => Promise<void>) => {
+    if (working.current || retrying.current) return;
+    working.current = true;
     setError(null);
     setBusy('Starting');
     try {
@@ -362,8 +373,13 @@ export function App() {
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      working.current = false;
       setBusy(null);
       await refresh();
+      if (retryAfter.current) {
+        retryAfter.current = false;
+        void checkWaiting();
+      }
     }
   };
 

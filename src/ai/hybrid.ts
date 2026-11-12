@@ -216,6 +216,9 @@ const hop = (step: Hop['step'], r: { where: Where; model: string; ms: number }, 
 
 const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
+/** Joins the words and the problem lines for one redaction pass; owners do not type it. */
+const SEP = '\n\u001e\n';
+
 // ---- reading the owner's words ------------------------------------------------------------------------------------
 
 /** Ask the cloud for a reading of the words with names removed, then check it here. */
@@ -225,9 +228,13 @@ async function cloudRead(
   problems: string[] | null,
   reason: string,
 ): Promise<{ reading: Reading; check: CheckResult; hop: Hop }> {
-  const red = redact(words, ctx.knownNames);
-  const prompt = problems ? secondOpinionPrompt(red.text, ctx.shopCurrency, problems) : readPrompt(red.text, ctx.shopCurrency);
-  if (!isClean(prompt, red.map)) throw new Error('A name was still in the words; nothing was sent.');
+  // The words and the device's problem lines (which quote item names from its reading) lose their names together,
+  // so a name gets one placeholder everywhere. The guard reads only these parts: the fixed instructions hold example
+  // names such as Sipho, which must not stop an entry about a real Sipho.
+  const red = redact([words, ...(problems ?? [])].join(SEP), ctx.knownNames);
+  const [text, ...lines] = red.text.split(SEP);
+  if (!isClean(red.text, red.map)) throw new Error('A name was still in the words; nothing was sent.');
+  const prompt = problems ? secondOpinionPrompt(text, ctx.shopCurrency, lines) : readPrompt(text, ctx.shopCurrency);
   const r = await call<unknown>([{ type: 'text', text: prompt }], {
     mode: InferenceMode.ONLY_IN_CLOUD,
     language: 'en',
@@ -442,8 +449,10 @@ export async function readQuestion(question: string, ctx: Context): Promise<{ qu
   const blocked = cloudBlocked(ctx);
   if (blocked) throw new Error(`This question needs the cloud (${why}), and ${blocked}.`);
   const red = redact(question, ctx.knownNames);
+  if (!isClean(red.text, red.map)) throw new Error('A name was still in the question; nothing was sent.');
+  const prompt = askPrompt(red.text, today);
   ctx.onStep?.('Asking the cloud what the question means, names taken out');
-  const r = await call<unknown>([{ type: 'text', text: askPrompt(red.text, today) }], {
+  const r = await call<unknown>([{ type: 'text', text: prompt }], {
     mode: InferenceMode.ONLY_IN_CLOUD,
     language: 'en',
     cloudModel: ctx.settings.cloudModel,

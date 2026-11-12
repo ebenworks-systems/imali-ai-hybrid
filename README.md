@@ -49,7 +49,7 @@ These runs were on 12 November 2026, in Chrome 157 on a Linux machine with 4 pro
 | How much does Thandi owe? | Thandi owes you R15. | 4 s |
 | Who owes me money? | 2 people owe you R15 and CFA 10,000. | 4 s |
 
-Gemini Nano's answers vary from run to run, which is why every reading goes through the checks. The names, shops and receipt in this repository and its film are made up for the demo.
+Gemini Nano's answers vary from run to run, which is why every reading goes through the checks.
 
 ## Try it
 
@@ -74,7 +74,7 @@ npm run build          # type check and production build into dist/
 
 Without a `.env` the app still runs and reads on the device; the cloud steps then wait.
 
-On your own machine, App Check uses its debug provider: copy the debug token from Chrome's console into the Firebase console under App Check, Manage debug tokens. Never commit a token.
+On your own machine, `npm run dev` uses App Check's debug provider: copy the debug token from Chrome's console into the Firebase console under App Check, Manage debug tokens. To keep one token, put it in `.env.development.local` as `VITE_APPCHECK_DEBUG_TOKEN`, never in `.env`, which a production build reads. Production builds leave the debug provider out.
 
 ## What was built during the hackathon
 

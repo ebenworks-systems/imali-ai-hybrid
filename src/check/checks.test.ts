@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Reading } from '../book/types';
 import { checkReceipt, checkWords } from './checks';
-import { amountsIn, currencyIn } from './numbers';
+import { amountsIn, currencyIn, mentionsEach } from './numbers';
 
 const r = (over: Partial<Reading>): Reading => ({
   kind: 'sale',
@@ -24,6 +24,16 @@ describe('numbers', () => {
     expect(amountsIn('R15 each').find((x) => x.value === 15)?.each).toBe(true);
     expect(amountsIn('1 200 shillings')[0].value).toBe(1200);
     expect(amountsIn('R12.50')[0].value).toBe(12.5);
+    expect(amountsIn('R1 500 each')[0]).toMatchObject({ value: 1500, each: true });
+  });
+
+  it('does not join a count to a size stuck to its unit', () => {
+    expect(amountsIn('Sold 3 750ml cooking oil at R45 each').map((x) => x.value)).toEqual([3, 750, 45]);
+    expect(amountsIn('2 500ml bottles').map((x) => x.value)).toEqual([2, 500]);
+  });
+
+  it("reads the French \"l'unité\" as a price for one", () => {
+    expect(mentionsEach("Vendu 2 sacs de riz à 5000 FCFA l'unité")).toBe(true);
   });
 
   it('finds the currency the words name', () => {
@@ -52,6 +62,7 @@ describe('checkWords', () => {
     expect(checkWords(r({ kind: 'sale', person: 'Thandi', due: null }), words).ok).toBe(false);
     expect(checkWords(r({ kind: 'sale' }), 'Sold 3 loaves at R15 each').ok).toBe(true);
     expect(checkWords(r({ kind: 'sale', person: 'Awa', due: null }), 'Vendu 3 pains à 15 R chacun à Awa, elle paie samedi').ok).toBe(false);
+    expect(checkWords(r({ kind: 'sale', person: 'Awa', due: null }), 'Vendu 3 pains à 15 R chacun à crédit à Awa').ok).toBe(false);
   });
 
   it('catches the unit-price mistake Gemini Nano made on 12 Nov 2026', () => {

@@ -32,6 +32,24 @@ describe('redact', () => {
   it('keeps Kiswahili day names and takes out the customer', () => {
     const r = redact('Nimemuuzia Juma mikate 2 kwa KSh 60 kila mmoja, atalipa Ijumaa');
     expect(r.text).toBe('Nimemuuzia [PERSON_1] mikate 2 kwa KSh 60 kila mmoja, atalipa Ijumaa');
+    expect(isClean(r.text, r.map)).toBe(true);
+  });
+
+  it('judges a name as a whole word, so a name inside a longer word does not stop the send', () => {
+    const tom = redact('Sold 2 Cokes at R12 each to Tom, he pays tomorrow', ['Tom']);
+    expect(tom.text).toBe('Sold 2 Cokes at R12 each to [PERSON_1], he pays tomorrow');
+    expect(isClean(tom.text, tom.map)).toBe(true);
+    expect(isClean('Sold 2 Cokes to Tom', tom.map)).toBe(false);
+  });
+
+  it('takes out a French name that opens the sentence', () => {
+    expect(redact('Awa a payé 2000 FCFA').text).toBe('[PERSON_1] a payé 2000 FCFA');
+  });
+
+  it('finds a name that ends in an accented letter', () => {
+    const r = redact('Vendu 2 sacs de riz à Aimé, il paie samedi', ['Aimé']);
+    expect(r.text).toBe('Vendu 2 sacs de riz à [PERSON_1], il paie samedi');
+    expect(isClean('Vendu 2 sacs de riz à Aimé, il paie samedi', r.map)).toBe(false);
   });
 
   it('puts the names back in a nested answer', () => {

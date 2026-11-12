@@ -9,7 +9,7 @@ const WORDS: Record<string, number> = {
 };
 
 /** Words that make the amount next to them a price for one unit. */
-const EACH = /\b(each|per|apiece|a piece|chacun|chacune|l'unité|la pièce|kila mmoja|kila moja)\b/i;
+const EACH = /(?<![\p{L}\p{N}_])(each|per|apiece|a piece|chacun|chacune|l'unité|la pièce|kila mmoja|kila moja)(?![\p{L}\p{N}_])/iu;
 
 export interface Amount {
   value: number;
@@ -19,7 +19,9 @@ export interface Amount {
   index: number;
 }
 
-const NUMBER = /(?:@\s*)?(?:[A-Za-z₹$€£]{0,4}\s?)?(\d{1,3}(?:[ ,]\d{3})+|\d+)(?:[.,](\d{1,2}))?(\s?k\b)?/g;
+// A comma or a space groups thousands ("1 200 shillings"), but not when a unit is stuck to the last group: "3 750ml"
+// is 3 bottles of 750 ml.
+const NUMBER = /(?:@\s*)?(?:[A-Za-z₹$€£]{0,4}\s?)?(\d{1,3}(?:(?:,| (?=\d{3}(?![A-Za-zà-ÿ])))\d{3})+|\d+)(?:[.,](\d{1,2}))?(\s?k\b)?/g;
 
 function toNumber(whole: string, cents: string | undefined, k: string | undefined): number {
   const n = Number(whole.replace(/[ ,]/g, '')) + (cents ? Number(cents.padEnd(2, '0')) / 100 : 0);
