@@ -7,7 +7,7 @@ import { ai, cloudConfigured, type Settings } from './firebase';
 import { askPrompt, QUERY_SCHEMA, READING_SCHEMA, readPrompt, receiptPrompt, receiptSecondOpinionPrompt, secondOpinionPrompt } from './prompts';
 import { checkReceipt, checkWords, type CheckResult } from '../check/checks';
 import { currencyIn } from '../check/numbers';
-import { isClean, redact, redactAlso, restore } from '../privacy/redact';
+import { isClean, placeholderIn, redact, redactAlso, restore } from '../privacy/redact';
 import type { Entry, Hop, Query, Reading, Where } from '../book/types';
 import { INTENTS, KINDS, PERIODS } from '../book/types';
 
@@ -142,8 +142,12 @@ interface CallResult<T> {
   missed?: string;
 }
 
-/** How long one cloud call may take. The SDK's own default is 180 seconds, too long for an owner at the counter. */
+/**
+ * How long one cloud call may take until its answer starts: 60 seconds for words, 120 for a photo, which also has to
+ * upload. The SDK's own default is 180 seconds, too long for an owner at the counter waiting on a model that is down.
+ */
 export const CLOUD_TIMEOUT_MS = 60_000;
+export const PHOTO_TIMEOUT_MS = 120_000;
 
 function parseJson(text: string): unknown {
   const t = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/, '');
@@ -169,7 +173,7 @@ async function call<T>(
         generationConfig: { responseMimeType: 'application/json', responseJsonSchema: opts.schema, temperature: 0 },
       },
     },
-    { timeout: CLOUD_TIMEOUT_MS },
+    { timeout: opts.image ? PHOTO_TIMEOUT_MS : CLOUD_TIMEOUT_MS },
   );
   const t0 = performance.now();
   const result = await model.generateContent(parts);
@@ -187,14 +191,20 @@ async function call<T>(
  */
 async function cloudCall<T>(
   parts: Part[],
+  ctx: Context,
   opts: { language: string; image?: boolean; cloudModel: string; fallbackModel?: string; schema: Record<string, unknown> },
 ): Promise<CallResult<T>> {
-  const once = (cloudModel: string) => call<T>(parts, { ...opts, mode: InferenceMode.ONLY_IN_CLOUD, cloudModel });
+  const { fallbackModel, ...rest } = opts;
+  const once = (cloudModel: string) => call<T>(parts, { ...rest, mode: InferenceMode.ONLY_IN_CLOUD, cloudModel });
+  const t0 = performance.now();
   try {
     return await once(opts.cloudModel);
   } catch (e) {
-    if (!opts.fallbackModel || opts.fallbackModel === opts.cloudModel) throw e;
-    return { ...(await once(opts.fallbackModel)), missed: opts.cloudModel };
+    // The fallback is a second cloud call, so it needs what the first one needed: a connection and today's cap.
+    if (!fallbackModel || fallbackModel === opts.cloudModel || cloudBlocked(ctx)) throw e;
+    const r = await once(fallbackModel);
+    // The owner waited for both calls, so the step shows both.
+    return { ...r, missed: opts.cloudModel, ms: Math.round(performance.now() - t0) };
   }
 }
 
@@ -220,7 +230,9 @@ export function currencyCode(v: string | null, shopCurrency: string): string {
   const named = currencyIn(v);
   if (named) return named;
   if (/^[A-Za-z]{3}$/.test(v)) return v.toUpperCase();
-  return currencyIn(`${v} 1`) ?? v.toUpperCase().slice(0, 3);
+  // Only a bare symbol is read as it would be before an amount: "Z$", "A$" or "R$" must not turn into US dollars.
+  if (/^(?:R|Rs\.?|\$|US\$|₹|€)$/i.test(v)) return currencyIn(`${v} 1`) ?? v;
+  return v.toUpperCase().slice(0, 3);
 }
 
 export function tidyReading(raw: unknown, shopCurrency: string): Reading {
@@ -279,16 +291,22 @@ async function cloudRead(
   const lines = (problems ?? []).map((p) => redactAlso(p, red, ctx.knownNames));
   if (!isClean([red.text, ...lines].join('\n'), red.map, red.parts, ctx.knownNames)) throw new Error('A name was still in the words; nothing was sent.');
   const prompt = problems ? secondOpinionPrompt(red.text, ctx.shopCurrency, lines) : readPrompt(red.text, ctx.shopCurrency);
-  const r = await cloudCall<unknown>([{ type: 'text', text: prompt }], {
+  const r = await cloudCall<unknown>([{ type: 'text', text: prompt }], ctx, {
     language: 'en',
     cloudModel: problems ? ctx.settings.secondOpinionModel : ctx.settings.cloudModel,
-    fallbackModel: problems ? ctx.settings.cloudModel : undefined,
+    fallbackModel: problems ? ctx.settings.cloudModel : ctx.settings.secondOpinionModel,
     schema: READING_SCHEMA,
   });
   const reading = restore(tidyReading(r.value, ctx.shopCurrency), red.map);
   const n = Object.keys(red.map).length;
   const sent = `the words, with ${n === 0 ? 'no names to remove' : n === 1 ? '1 name removed' : `${n} names removed`}`;
-  return { reading, check: checkWords(reading, words), hop: hop(problems ? 'second-opinion' : 'read', r, because(reason, r), sent) };
+  const check = checkWords(reading, words);
+  const left = placeholderIn(reading);
+  if (left) {
+    check.ok = false;
+    check.problems.push(`The cloud's answer still holds "${left}" where a name was taken out, so the name is not known.`);
+  }
+  return { reading, check, hop: hop(problems ? 'second-opinion' : 'read', r, because(reason, r), sent) };
 }
 
 export async function readWords(words: string, ctx: Context): Promise<Entry> {
@@ -446,7 +464,7 @@ export async function readReceipt(file: Blob, ctx: Context): Promise<Entry> {
   try {
     ctx.onStep?.('The lines did not add up: asking the cloud to read the photo again');
     const prompt = first ? receiptSecondOpinionPrompt(ctx.shopCurrency, first.check.problems) : receiptPrompt(ctx.shopCurrency);
-    const r = await cloudCall<unknown>([{ type: 'text', text: prompt }, image], {
+    const r = await cloudCall<unknown>([{ type: 'text', text: prompt }, image], ctx, {
       language: 'en',
       image: true,
       cloudModel: first ? ctx.settings.secondOpinionModel : ctx.settings.cloudModel,
@@ -496,15 +514,18 @@ export async function readQuestion(question: string, ctx: Context): Promise<{ qu
   if (!isClean(red.text, red.map, red.parts, ctx.knownNames)) throw new Error('A name was still in the question; nothing was sent.');
   const prompt = askPrompt(red.text, today);
   ctx.onStep?.('Asking the cloud what the question means, names taken out');
-  const r = await call<unknown>([{ type: 'text', text: prompt }], {
-    mode: InferenceMode.ONLY_IN_CLOUD,
+  const r = await cloudCall<unknown>([{ type: 'text', text: prompt }], ctx, {
     language: 'en',
     cloudModel: ctx.settings.cloudModel,
+    fallbackModel: ctx.settings.secondOpinionModel,
     schema: QUERY_SCHEMA,
   });
   const n = Object.keys(red.map).length;
+  const query = restore(tidyQuery(r.value), red.map);
+  const left = placeholderIn(query);
+  if (left) throw new Error(`The cloud's answer still holds "${left}" where a name was taken out; ask again with the name.`);
   return {
-    query: restore(tidyQuery(r.value), red.map),
-    hops: [hop('ask', r, why, `the question only, ${n} name${n === 1 ? '' : 's'} removed; no records`)],
+    query,
+    hops: [hop('ask', r, because(why, r), `the question only, ${n} name${n === 1 ? '' : 's'} removed; no records`)],
   };
 }

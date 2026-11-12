@@ -12,6 +12,8 @@ interface Call {
 const calls: Call[] = [];
 // Cloud models that answer with an error, as gemini-3.8-flash did on the free tier on 12 Nov 2026 (503 after 180 s).
 const downModels = new Set<string>();
+// Cloud models that answer, slowly, with text that is not the JSON asked for.
+const garbageModels = new Set<string>();
 // What each engine answers next: a reading or a query, as the model would return it.
 let deviceAnswer: Record<string, unknown> = {};
 let cloudAnswer: Record<string, unknown> = {};
@@ -35,14 +37,18 @@ vi.mock('firebase/ai', () => ({
       const model = params.inCloudParams?.model;
       calls.push({ mode: params.mode, prompt, model, timeout: requestOptions?.timeout });
       const onDevice = params.mode === 'only_on_device' || params.mode === 'prefer_on_device';
-      if (!onDevice && model && downModels.has(model)) throw new Error(`[503 ] Deadline expired (${model})`);
+      if (!onDevice && model && downModels.has(model)) {
+        await new Promise((r) => setTimeout(r, 30));
+        throw new Error(`[503 ] Deadline expired (${model})`);
+      }
+      if (!onDevice && model && garbageModels.has(model)) return { response: { inferenceSource: 'in_cloud', text: () => 'Sorry, I cannot help.' } };
       const body = onDevice ? deviceAnswer : cloudAnswer;
       return { response: { inferenceSource: onDevice ? 'on_device' : 'in_cloud', text: () => JSON.stringify(body) } };
     },
   }),
 }));
 
-const { currencyCode, finishWords, readWords, readQuestion } = await import('./hybrid');
+const { currencyCode, finishWords, readWords, readQuestion, PHOTO_TIMEOUT_MS } = await import('./hybrid');
 
 const store = new Map<string, string>();
 vi.stubGlobal('localStorage', {
@@ -65,7 +71,7 @@ vi.stubGlobal('LanguageModel', {
 vi.stubGlobal('LanguageDetector', {
   availability: async () => 'available',
   create: async () => ({
-    detect: async (t: string) => [{ detectedLanguage: /Nimemuuzia|atalipa/.test(t) ? 'sw' : 'en', confidence: 0.99 }],
+    detect: async (t: string) => [{ detectedLanguage: /Nimemuuzia|atalipa|anadaiwa/.test(t) ? 'sw' : 'en', confidence: 0.99 }],
   }),
 });
 
@@ -87,6 +93,7 @@ const maize = (unit: number) => ({
 beforeEach(() => {
   calls.length = 0;
   downModels.clear();
+  garbageModels.clear();
   store.clear();
   online = true;
 });
@@ -242,6 +249,32 @@ describe('reading words', () => {
     expect(e.hops[1].model).toBe('cloud-model');
     expect(e.hops[1].reason).toMatch(/second-model did not answer, so cloud-model was asked/);
     expect(calls[2].prompt).toBe(calls[1].prompt);
+    // The step shows the wait for both calls, not only the one that answered.
+    expect(e.hops[1].ms).toBeGreaterThanOrEqual(25);
+  });
+
+  it('does not ask a fallback model past the daily cap', async () => {
+    deviceAnswer = maize(60);
+    cloudAnswer = maize(120);
+    garbageModels.add('second-model');
+    const capped = { ...ctx, settings: { ...ctx.settings, maxCloudCallsPerDay: 1 } };
+    const e = await readWords('Sold two bags of maize meal for 120 rand each', capped);
+    expect(calls.filter((c) => c.mode === 'only_in_cloud').map((c) => c.model)).toEqual(['second-model']);
+    expect(e.status).toBe('waiting');
+  });
+
+  it('marks a reading that still holds a placeholder as needing the owner, not checked', async () => {
+    cloudAnswer = {
+      kind: 'debt',
+      items: [{ name: 'mikate', quantity: 2, unit_price: 60, line_total: 120 }],
+      total: 120,
+      currency: 'KES',
+      person: '[PERSON_3]',
+      due: 'Ijumaa',
+    };
+    const e = await readWords('Nimemuuzia Juma mikate 2 kwa KSh 60 kila mmoja, atalipa Ijumaa', ctx);
+    expect(e.status).toBe('needs-you');
+    expect(e.problems.join(' ')).toMatch(/PERSON_3/);
   });
 
   it('keeps the entry waiting when neither cloud model answers, and counts no cloud call', async () => {
@@ -254,12 +287,22 @@ describe('reading words', () => {
     expect(store.size).toBe(0);
   });
 
-  it('does not ask a second model for a plain cloud read, and gives every call a 60-second limit', async () => {
+  it('asks the second-opinion model when the cloud model does not answer a plain cloud read, each with a 60-second limit', async () => {
     downModels.add('cloud-model');
+    cloudAnswer = {
+      kind: 'debt',
+      items: [{ name: 'mikate', quantity: 2, unit_price: 60, line_total: 120 }],
+      total: 120,
+      currency: 'KES',
+      person: '[PERSON_1]',
+      due: 'Ijumaa',
+    };
     const e = await readWords('Nimemuuzia Juma mikate 2 kwa KSh 60 kila mmoja, atalipa Ijumaa', ctx);
-    expect(calls.map((c) => `${c.mode}:${c.model}`)).toEqual(['only_in_cloud:cloud-model']);
-    expect(e.status).toBe('waiting');
+    expect(calls.map((c) => `${c.mode}:${c.model}`)).toEqual(['only_in_cloud:cloud-model', 'only_in_cloud:second-model']);
+    expect(e.status).toBe('checked');
+    expect(e.hops[0].reason).toMatch(/cloud-model did not answer, so second-model was asked/);
     expect(calls.every((c) => c.timeout === 60_000)).toBe(true);
+    expect(PHOTO_TIMEOUT_MS).toBe(120_000);
   });
 
   it('puts the name back when the cloud answers PERSON_1 without brackets', async () => {
@@ -285,6 +328,12 @@ describe('reading words', () => {
     expect(currencyCode('Rs', 'ZAR')).toBe('INR');
     expect(currencyCode('kes', 'ZAR')).toBe('KES');
     expect(currencyCode('TZS', 'ZAR')).toBe('TZS');
+    expect(currencyCode('$', 'ZAR')).toBe('USD');
+    expect(currencyCode('Z$', 'ZAR')).toBe('Z$');
+    expect(currencyCode('A$', 'ZAR')).toBe('A$');
+    expect(currencyCode('Kshs', 'ZAR')).toBe('KES');
+    expect(currencyCode('TSh', 'ZAR')).toBe('TZS');
+    expect(currencyCode('USh', 'ZAR')).toBe('UGX');
     expect(currencyCode(null, 'ZAR')).toBe('ZAR');
     deviceAnswer = {
       kind: 'debt',
@@ -317,6 +366,11 @@ describe('reading words', () => {
 });
 
 describe('questions', () => {
+  it('refuses a cloud reading of a question that still holds a placeholder', async () => {
+    cloudAnswer = { intent: 'owed_by', person: 'PERSON_2', item: '', period: 'all' };
+    await expect(readQuestion('Juma anadaiwa kiasi gani?', ctx)).rejects.toThrow(/PERSON_2/);
+  });
+
   it('turns a question into a query on the device and sends no record anywhere', async () => {
     deviceAnswer = { intent: 'owed_by', person: 'Thandi', item: '', period: 'all' };
     const { query, hops } = await readQuestion('How much does Thandi owe?', ctx);

@@ -156,8 +156,8 @@ export function restore<T>(value: T, map: Record<string, string>): T {
       s = s.split(k).join(v);
       // A cloud model sometimes drops the brackets or swaps them ("PERSON_1", "{PERSON_1}"), as gemini-3.5-flash-lite
       // did for the Kiswahili example on 12 Nov 2026. The digit must end there, so PERSON_1 never takes PERSON_10.
-      const bare = /^\[([A-Z]+_\d+)\]$/.exec(k)?.[1];
-      if (bare) s = s.replace(new RegExp(`[[{<]?\\b${bare}\\b[\\]}>]?`, 'gi'), () => v);
+      const m = /^\[([A-Z]+)_(\d+)\]$/.exec(k);
+      if (m) s = s.replace(new RegExp(`[[{<]?\\b${m[1]}[\\s_-]?${m[2]}\\b[\\]}>]?`, 'gi'), () => v);
     }
     return s as T;
   }
@@ -168,6 +168,23 @@ export function restore<T>(value: T, map: Record<string, string>): T {
     return o as T;
   }
   return value;
+}
+
+/**
+ * A placeholder still in a restored answer, in any of the forms a model writes one ("[PERSON_3]", "PERSON1",
+ * "Person 1", "PERSON_1s"), or null. Such an answer names nobody the owner knows, so it must not count as checked.
+ */
+export function placeholderIn(value: unknown): string | null {
+  if (typeof value === 'string') return /\b(?:PERSON|PHONE)[\s_-]?\d+/i.exec(value)?.[0] ?? null;
+  if (Array.isArray(value)) {
+    for (const v of value) {
+      const hit = placeholderIn(v);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  if (value && typeof value === 'object') return placeholderIn(Object.values(value));
+  return null;
 }
 
 /**

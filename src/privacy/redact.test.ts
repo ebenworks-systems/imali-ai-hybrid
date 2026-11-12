@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isClean, redact, redactAlso, restore } from './redact';
+import { isClean, placeholderIn, redact, redactAlso, restore } from './redact';
 
 describe('redact', () => {
   it('replaces a known customer and a name the book has not seen', () => {
@@ -158,6 +158,14 @@ describe('redact', () => {
     expect(restore('<person_1>', map)).toBe('Juma');
     expect(restore('PERSON_10 and PERSON_1', map)).toBe('Awa and Juma');
     expect(restore('XPERSON_1', map)).toBe('XPERSON_1');
+    expect(restore('PERSON1 and Person 1 and PERSON-1', map)).toBe('Juma and Juma and Juma');
+  });
+
+  it('finds a placeholder left in an answer in any form, and nothing in plain words', () => {
+    expect(placeholderIn({ person: '[PERSON_3]' })).toBe('PERSON_3');
+    expect(placeholderIn({ items: [{ name: 'bread for PERSON_1s' }] })).toBe('PERSON_1');
+    expect(placeholderIn(['ok', { due: 'Person 2' }])).toBe('Person 2');
+    expect(placeholderIn({ person: 'Juma', items: [{ name: 'personal 1 kg soap' }] })).toBeNull();
   });
 
   it('puts the names back in a nested answer', () => {
