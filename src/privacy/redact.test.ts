@@ -791,3 +791,22 @@ describe('second review round 21, third pass (EBE-11682)', () => {
     expect(Date.now() - start).toBeLessThan(1000);
   });
 });
+
+describe('fresh read of 45e48a1 (EBE-11697)', () => {
+  const clean = (said: string) => {
+    const red = redact(said, []);
+    return isClean(red.text, red.map, red.parts);
+  };
+
+  it('refuses a phone whose price-shaped piece "@" or "=" joins to a local part of seven digits', () => {
+    for (const said of ['263.77@123 4567', '263.77 = 1234567', '27.82=123.4567', 'Call 263.77 = 123 4567', '27.82 @ 123 4567']) {
+      expect(clean(said), said).toBe(false);
+    }
+  });
+
+  it('lets a price beside one six-digit reference through', () => {
+    for (const said of ['Paid 2500.00 (123456)', 'Receipt 4500.00 / 123456', 'Order 123456 - 4500.00', 'Sold 12@1250.00 = 15000.00']) {
+      expect(clean(said), said).toBe(true);
+    }
+  });
+});

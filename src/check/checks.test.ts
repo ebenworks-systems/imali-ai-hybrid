@@ -436,3 +436,15 @@ describe('second review round 21, third pass (EBE-11682)', () => {
     }
   });
 });
+
+describe('fresh read of 45e48a1 (EBE-11697)', () => {
+  it('reads a word such as "à" or "après" as a noun lead only before "commande", "paye" or "paie"', () => {
+    for (const words of [
+      'Vendu à une cliente, Marie à reçu 2 cartons pour 12 par carton',
+      'Vendu hier, après livré 2 cartons pour 12 par carton',
+    ]) {
+      expect(amountsIn(words).find((a) => a.value === 12)?.each, words).toBe(false);
+    }
+    expect(amountsIn('Vendu avant paie 2 sacs pour 5000 par sac').find((a) => a.value === 5000)?.each).toBe(true);
+  });
+});

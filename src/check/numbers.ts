@@ -57,8 +57,14 @@ const OTHER_VERBS =
   'pai(?:e|es|ent)|re[cç]oi(?:s|t|vent)|pris(?:e|es)?|arriv[eé](?:e|s|es)?|received|got|delivered|bought|ordered|paid';
 /** Words for the customer, after which a verb, with "qui" or not, describes them ("à un client payé cash", "qui paie cash"). */
 const PERSON_WORDS = 'clients?|clientes?|customers?|amie?s?|voisine?s?|dame|dames|monsieur|madame|femme|homme|personne';
-/** Words before which "commande", "paye" or "paie" is a noun, not a verb ("sur commande", "avec la paye", "avant paie"). */
-const NOUN_LEADS = 'une|un|sur|de|du|des|par|ma|ta|sa|mon|ton|son|notre|votre|avant|après|apres|à';
+/** Words before which a verb in OTHER_VERBS is a noun ("sur commande", "avec la paye"). */
+const NOUN_LEADS = 'une|un|sur|de|du|par|ma|ta|sa|mon|ton|son|notre|votre';
+/**
+ * Words before which "commande", "paye" or "paie" alone is a noun ("des commandes", "avant paie", "jusqu'à paie"). Before
+ * any other verb they are not: "à" is often typed for "a" ("Marie à reçu 2 cartons" is a verb).
+ */
+const PAY_NOUN_LEADS = 'des|avant|après|apres|à';
+const PAY_NOUNS = 'commandes?|payes?|paies?';
 /** The leads that are also object pronouns before a verb after a subject ("il en commande", "elle la paye"). */
 const OBJECT_LEADS = 'la|le|les|en|leur';
 /**
@@ -121,6 +127,7 @@ function parForOne(after: string, before: string, prefix: string, rest: string):
       `(?:${COUNT_WORDS})(?![\\p{L}])|(?<!(?:^|[^\\p{L}])(?:à|au|aux|pour|to|for|de|avec)\\s+)(?:${ARTICLES})(?![\\p{L}])|` +
       `(?<!(?:^|[^\\p{L}])(?:${PERSON_WORDS})\\s+(?:qui\\s+)?)` +
       `(?<!(?:^|[^\\p{L}])(?:${NOUN_LEADS})\\s+)(?<!(?:^|[^\\p{L}])(?<!${SUBJECT_BEFORE})(?:${OBJECT_LEADS})\\s+)` +
+      `(?!(?<=(?:^|[^\\p{L}])(?:${PAY_NOUN_LEADS})\\s+)(?:${PAY_NOUNS})(?![\\p{L}]))` +
       `(?<!(?:^|[^\\p{L}])[dl]['’])(?:${OTHER_VERBS})(?![\\p{L}])`;
     const sale = new RegExp(
       `(?:^|[^\\p{L}])(?:vendu|vendus|vendue|vendues|vend|vends|sold|sell|sells)(?![\\p{L}])(?:(?!(?<![\\p{L}\\p{N}])(?:${stop}))[^.;\\d])*?(?<![\\p{L}\\p{N}])(?:\\d+(?:[ ,.]\\d{3})*|${NUMBER_WORDS})\\s+(?:de\\s+|d['’])?\\p{L}+\\s+(?:pour|for)\\s*$`,
