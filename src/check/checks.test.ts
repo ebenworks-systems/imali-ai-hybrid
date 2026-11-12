@@ -31,6 +31,12 @@ describe('numbers', () => {
     expect(amountsIn('Sold 3 750ml cooking oil at R45 each').map((x) => x.value)).toEqual([3, 750, 45]);
     expect(amountsIn('2 500ml bottles').map((x) => x.value)).toEqual([2, 500]);
     expect(amountsIn('3 750 ml of oil').map((x) => x.value)).toEqual([3, 750]);
+    expect(amountsIn('Sold 3 750mL oil at R45 each').map((x) => x.value)).toEqual([3, 750, 45]);
+    expect(amountsIn('4 250Kg bags').map((x) => x.value)).toEqual([4, 250]);
+    expect(amountsIn("Vendu 2 sacs à 2 500 l'unité").map((x) => [x.value, x.each])).toEqual([
+      [2, false],
+      [2500, true],
+    ]);
   });
 
   it('keeps a spaced thousand together when a currency is stuck to it', () => {
@@ -46,6 +52,14 @@ describe('numbers', () => {
     expect(mentionsEach("Vendu 2 sacs de riz à 5000 FCFA l'unité")).toBe(true);
     expect(amountsIn("Vendu 2 sacs de riz à 5000 FCFA l'unité").find((x) => x.value === 5000)?.each).toBe(true);
     expect(amountsIn('Vendu 2 sacs de riz à 5000 FCFA la pièce').find((x) => x.value === 5000)?.each).toBe(true);
+    expect(amountsIn('Vendu 2 sacs de riz à 5000 FCFA par sac').find((x) => x.value === 5000)?.each).toBe(true);
+    expect(amountsIn("Vendu 2 sacs de riz à 5000 FCFA l'unite").find((x) => x.value === 5000)?.each).toBe(true);
+  });
+
+  it('still allows a quantity of one when "par" means "by"', () => {
+    const words = 'Awa a payé 2000 FCFA par Orange Money';
+    const pay = r({ kind: 'payment', person: 'Awa', items: [{ name: 'payment', quantity: 1, unit_price: 2000, line_total: 2000 }], total: 2000, currency: 'XOF' });
+    expect(checkWords(pay, words).ok).toBe(true);
   });
 
   it("catches a French price for one read as the line's total", () => {

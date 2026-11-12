@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isClean, redact, restore } from './redact';
+import { isClean, redact, redactAlso, restore } from './redact';
 
 describe('redact', () => {
   it('replaces a known customer and a name the book has not seen', () => {
@@ -40,6 +40,20 @@ describe('redact', () => {
     expect(tom.text).toBe('Sold 2 Cokes at R12 each to [PERSON_1], he pays tomorrow');
     expect(isClean(tom.text, tom.map)).toBe(true);
     expect(isClean('Sold 2 Cokes to Tom', tom.map)).toBe(false);
+  });
+
+  it('does not find a name inside a placeholder', () => {
+    const r = redact('Sold 1 Phone charger to Thandi, call 0821234567', ['Thandi']);
+    expect(r.text).toContain('[PHONE_1]');
+    expect(isClean(r.text, r.map)).toBe(true);
+  });
+
+  it('takes the longest known name out of the problem lines first', () => {
+    const red = redact('Sold 3 loaves to Thandi', ['Thandi', 'Thandi Moyo']);
+    const line = redactAlso('"loaves for Thandi Moyo" has a quantity of 0.', red, ['Thandi', 'Thandi Moyo']);
+    expect(line).toBe('"loaves for [PERSON_2]" has a quantity of 0.');
+    expect(isClean(line, red.map)).toBe(true);
+    expect(red.map['[PERSON_2]']).toBe('Thandi Moyo');
   });
 
   it('takes out a name with a digit stuck to it', () => {

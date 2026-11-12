@@ -24,12 +24,12 @@ const NOT_NAMES = new Set(
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
- * A pattern that finds `text` with no letter touching it on either side, accented letters counted as letters. "Tom"
- * is not found in "tomorrow", nor "Juma" in "Ijumaa" (Kiswahili for Friday); "Aimé" is found before a comma, and
- * "Thandi" in "Thandi2", since a digit is not part of a name.
+ * A pattern that finds `text` with no letter or underscore touching it, accented letters counted as letters. "Tom" is
+ * not found in "tomorrow", nor "Juma" in "Ijumaa" (Kiswahili for Friday), nor "Phone" inside a "[PHONE_1]"
+ * placeholder; "Aimé" is found before a comma, and "Thandi" in "Thandi2", since a digit is not part of a name.
  */
 export function wholeWord(text: string, flags = 'iu'): RegExp {
-  return new RegExp(`(?<!\\p{L})${escape(text)}(?!\\p{L})`, flags);
+  return new RegExp(`(?<![\\p{L}_])${escape(text)}(?![\\p{L}_])`, flags);
 }
 
 /**
@@ -78,12 +78,16 @@ export function redact(text: string, known: string[] = []): Redacted {
  */
 export function redactAlso(text: string, red: Redacted, known: string[] = []): string {
   let out = text;
-  const byLength = Object.entries(red.map).sort(([, a], [, b]) => b.length - a.length);
-  for (const [key, value] of byLength) out = out.replace(wholeWord(value, 'giu'), key);
-  for (const name of [...known].filter(Boolean).sort((a, b) => b.length - a.length)) {
+  // One list, longest first, so "Thandi Moyo" goes before "Thandi" whichever list each came from.
+  const names = new Map<string, string>();
+  for (const n of [...Object.values(red.map), ...known]) if (n) names.set(n.toLowerCase(), n);
+  for (const name of [...names.values()].sort((a, b) => b.length - a.length)) {
     if (!wholeWord(name).test(out)) continue;
-    const key = `[PERSON_${Object.keys(red.map).filter((k) => k.startsWith('[PERSON_')).length + 1}]`;
-    red.map[key] = name;
+    let key = Object.entries(red.map).find(([, v]) => v.toLowerCase() === name.toLowerCase())?.[0];
+    if (!key) {
+      key = `[PERSON_${Object.keys(red.map).filter((k) => k.startsWith('[PERSON_')).length + 1}]`;
+      red.map[key] = name;
+    }
     out = out.replace(wholeWord(name, 'giu'), key);
   }
   return out;
