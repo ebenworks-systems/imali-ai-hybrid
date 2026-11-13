@@ -182,6 +182,108 @@ const NOT_NAMES = new Set(
   ).split(' '),
 );
 
+/**
+ * Lower-case words that stand in a name slot but are not a person: pronouns, shop and money words, common items,
+ * numbers and small words in the four languages. A name typed in lower case is taken out only when it sits in a slot
+ * and is not one of these, so "sold 2 bread to the shop" and "nimeuza sukari kwa deni" reach the cloud whole.
+ */
+const NOT_SLOT_NAMES = new Set(
+  [
+    ...[...NOT_NAMES].map((w) => w.toLowerCase()),
+    ...(
+      'me him her them us you it his their our your this that these those someone somebody everyone anyone nobody ' +
+      'customer customers client clients people person credit debt loan account tab each per every all both total ' +
+      'change stock supplier suppliers wholesale wholesaler shop store market home work town there here now then later ' +
+      'last next buy pay sell get give take make be do go see keep put add save bring restock record order owe ' +
+      'one two three four five six seven eight nine ten twenty hundred thousand half dozen mpesa m-pesa ecocash momo ' +
+      'bank transfer loaf loaves soap oil tea salt flour maize mealie meal beans soda water data juice sweets ' +
+      'cigarettes matches candles paraffin chips biscuits bananas tomatoes onions potatoes cabbage chicken meat fish ' +
+      'deni madeni mkopo pesa fedha taslimu bei shilingi sh kila jumla siku wiki mwezi mwaka sasa simu kadi benki ' +
+      'ajili sababu hiyo hivyo mfano mara kuwa haraka mteja wateja mimi yeye wao sisi wewe nyinyi kununua kulipa ' +
+      'kuuza kukopa mkate mikate sukari maziwa unga mafuta chai maji mchele sabuni vocha chumvi mayai nyama samaki ' +
+      'maharagwe ndizi nyanya vitunguu viazi kabichi kuku mia elfu moja mbili tatu nne tano sita saba nane tisa kumi ' +
+      'mmoja wawili miwili mitatu mitano kadhaa zaidi nusu ya za la na wa cha vya katika hadi mpaka bila punguzo bure ' +
+      'duka dukani soko sokoni nyumbani le les l un une des du crédit payer rembourser chaque boutique marché ' +
+      'biskuti pipi sigara kiberiti mshumaa mishumaa betri dawa isinkwa ushukela ubisi amaqanda imali isikweletu turn ' +
+      'who whom what which how where when why but so because again too also only just first please still already ' +
+      'yet soon school church clinic hospital office landlord rent agent driver rest others ' +
+      'kwa ni si pia tu sana bado tena nani nini wapi lini gani nao naye ' +
+      'qui quoi hier demain aussi encore'
+    ).split(' '),
+  ],
+);
+
+/**
+ * A word in lower case that may be a name: lower-case letters (accents too), with an inner apostrophe or hyphen. A word
+ * with a capital inside ("uSipho") is an isiZulu name after its prefix, read by ZULU_PREFIX. A name has at most 40
+ * letters, which also keeps the pattern built from it small.
+ */
+const LOWER = String.raw`\p{Ll}[\p{Ll}'’-]{0,38}\p{Ll}(?!\p{L})`;
+
+/**
+ * Slots where the next lower-case word is a person: "to" after a selling, giving, lending or paying verb, "from" after a
+ * buying, receiving or borrowing one, French "à" after "vendu", "donné", "prêté" or "payé", Kiswahili "kwa" and
+ * "deni la", and "does tendai owe". Group 1 is the word, group 2 a second word of the same name ("to thandi moyo").
+ */
+const NAME_SLOTS = [
+  String.raw`(?<=\b(?:sold|sell|sells|selling|gave|give|gives|given|giving|lent|lend|lends|loaned|sent|send|delivered|credit|credited|owed?|owes|paid|pay|repaid|returned)\b[^.!?\n]{0,60})\bto`,
+  String.raw`(?<=\b(?:bought|buy|buys|got|get|received|receive|collected|borrowed|borrow)\b[^.!?\n]{0,60})\bfrom`,
+  String.raw`(?<=\b(?:vendu|vendue|vendus|donné|donnée|prêté|prêtée|payé|rendu)\b[^.!?\n]{0,60})(?<!\p{L})à`,
+  String.raw`(?<!\p{L})kwa`,
+  String.raw`(?<!\p{L})(?:deni|madeni)\s+(?:la|ya)`,
+].map((slot) => new RegExp(String.raw`(?:${slot})\s+(${LOWER})(?:\s+(${LOWER}))?(?!\p{L}|_\d+\])`, 'giu'));
+/** "does tendai owe", "how much has juma paid": a money verb after the name. */
+const ASKED_SLOT = new RegExp(String.raw`\b(?:does|did|do|has|have|will)\s+(${LOWER})\s+(?:still\s+)?(?:owe|owes|pay|paid|have)\b`, 'giu');
+
+/** Words after which the word before is the item, not a person ("nimemuuzia mikate miwili", "... mikate leo"). */
+const AFTER_ITEM = new Set(
+  ('ya za la wa cha vya kila leo jana kesho moja mbili tatu nne tano sita saba nane tisa kumi mmoja wawili ' +
+    'miwili mitatu mitano kadhaa zaidi nusu mia elfu deni taslimu bei').split(' '),
+);
+/**
+ * A Kiswahili verb that carries a person as its object ("nimemuuzia", "nilimpa", "namkopesha", "atamlipa"). After
+ * "lipa" (pay) or "dai" (be owed by) the next word is the person ("nimemlipa juma 200"). After a verb of selling, giving
+ * or lending it is the person when another word follows ("nimemuuzia juma mikate 2", "... juma kwa deni"), and the item
+ * when a number, a count word or the end follows ("nimemuuzia mikate 2", "nimemuuzia mikate miwili").
+ */
+const OBJECT_VERB = new RegExp(
+  String.raw`(?<!\p{L})(?:ni|n|u|a|tu|m|wa)(?:me|li|na|ta|ki|a)?(?:mu|mw|m)(uzia|uzie|pa|pe|kopesha|kopeshe|lipa|lipe|dai|letea|rudishia|tumia)\s+(${LOWER})(?:\s+(${LOWER}))?`,
+  'giu',
+);
+
+/** A lower-case word opening a sentence or clause before a person's money verb ("tendai paid R30", "juma amelipa 200"). */
+const OPENING_SLOT = new RegExp(
+  String.raw`(?:^|[.!?,;]\s*|\n\s*)(${LOWER})\s+(?:paid|pays|owes|owe|took|borrowed|a payé|doit|ukweleta|ukhokhile|amelipa|analipa|atalipa|anadaiwa|amechukua|amekopa)(?![\p{L}\p{N}_])`,
+  'gu',
+);
+/** An isiZulu name after its prefix, written the standard way or hyphenated ("kuThandi", "uSipho", "ku-thandi"). */
+const ZULU_PREFIX = /(?<!\p{L})(?:(?:ku|u|ka|ngu|kwa|no|na)(\p{Lu}[\p{Ll}'’-]{0,38}\p{Ll})|(?:ku|u|ka|ngu|kwa)-(\p{Ll}[\p{Ll}'’-]{0,38}\p{Ll}))(?!\p{L}|_\d+\])/gu;
+
+/** The lower-case words of `text` that stand in a name slot and are not ordinary words. */
+function slotNames(text: string): string[] {
+  // The slots match in any case ("Sold 2 bread to tendai"); the word itself must open in lower case, since a
+  // capitalised one has been read by the rules above.
+  const keep = (w: string | undefined): w is string => !!w && /^\p{Ll}/u.test(w) && !NOT_SLOT_NAMES.has(w.toLowerCase());
+  const found: string[] = [];
+  for (const re of NAME_SLOTS) {
+    for (const m of text.matchAll(re)) {
+      if (!keep(m[1])) continue;
+      found.push(keep(m[2]) ? `${m[1]} ${m[2]}` : m[1]);
+    }
+  }
+  for (const m of text.matchAll(ASKED_SLOT)) if (keep(m[1])) found.push(m[1]);
+  for (const m of text.matchAll(OBJECT_VERB)) {
+    const personOnly = /^(?:lipa|lipe|dai)$/i.test(m[1]);
+    if (keep(m[2]) && (personOnly || (m[3] && !AFTER_ITEM.has(m[3].toLowerCase())))) found.push(m[2]);
+  }
+  for (const m of text.matchAll(OPENING_SLOT)) if (keep(m[1])) found.push(m[1]);
+  for (const m of text.matchAll(ZULU_PREFIX)) {
+    if (m[1] && !NOT_NAMES.has(m[1])) found.push(m[1]);
+    if (keep(m[2])) found.push(m[2]);
+  }
+  return found;
+}
+
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
@@ -266,6 +368,16 @@ export function redact(text: string, known: string[] = []): Redacted {
   )) {
     if (!NOT_NAMES.has(m[1])) swap(m[1]);
   }
+  // A name typed in lower case, in a slot where a person stands ("sold 2 bread to tendai", "nimemuuzia juma mikate 2").
+  for (const name of slotNames(out)) if (wholeWord(name).test(out)) swap(name);
+  // An isiZulu name written after its prefix ("kuThandi", "uSipho") keeps the prefix, and a hyphen before the
+  // placeholder ("ku-[PERSON_1]"), so a placeholder the cloud writes back without its brackets is still found.
+  out = out.replace(ZULU_PREFIX, (whole, cap: string | undefined) => {
+    if (!cap || NOT_NAMES.has(cap)) return whole;
+    const key = keyFor(cap);
+    parts.delete(key);
+    return `${whole.slice(0, whole.length - cap.length)}-${key}`;
+  });
   let p = 0;
   out = replacePhones(out, (phone) => {
     const key = `[PHONE_${++p}]`;

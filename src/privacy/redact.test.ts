@@ -810,3 +810,78 @@ describe('fresh read of 45e48a1 (EBE-11697)', () => {
     }
   });
 });
+
+describe('a new name typed in lower case (EBE-11690)', () => {
+  it('takes out a lower-case name in a name slot, in each language', () => {
+    const cases: [string, string][] = [
+      ['nimemuuzia juma mikate 2 kwa KSh 60', 'nimemuuzia [PERSON_1] mikate 2 kwa KSh 60'],
+      ['sold 2 bread to tendai for R30', 'sold 2 bread to [PERSON_1] for R30'],
+      ['sold 2 bread to tendai moyo for R30', 'sold 2 bread to [PERSON_1] for R30'],
+      ['nimeuza mkate kwa juma kwa KSh 60', 'nimeuza mkate kwa [PERSON_1] kwa KSh 60'],
+      ['deni la amina ni 300', 'deni la [PERSON_1] ni 300'],
+      ['nilimpa otieno sukari 2', 'nilimpa [PERSON_1] sukari 2'],
+      ['juma amelipa 200', '[PERSON_1] amelipa 200'],
+      ['Paid R30. thandi owes R20', 'Paid R30. [PERSON_1] owes R20'],
+      ['received 500 from chipo', 'received 500 from [PERSON_1]'],
+      ['how much has wanjiru paid', 'how much has [PERSON_1] paid'],
+      ['vendu 2 pains à marie pour 500', 'vendu 2 pains à [PERSON_1] pour 500'],
+      ['ngithengise isinkwa ku-thandi nge-R15', 'ngithengise isinkwa ku-[PERSON_1] nge-R15'],
+    ];
+    for (const [said, sent] of cases) {
+      const r = redact(said, []);
+      expect(r.text, said).toBe(sent);
+      expect(isClean(r.text, r.map, r.parts), said).toBe(true);
+    }
+  });
+
+  it('takes out an isiZulu name written after its prefix, the standard way', () => {
+    const r = redact('Ngithengise isinkwa kuThandi nge-R15, uSipho ukhokhile', []);
+    expect(r.text).toBe('Ngithengise isinkwa ku-[PERSON_1] nge-R15, u-[PERSON_2] ukhokhile');
+    expect(restore(r.text, r.map)).toBe('Ngithengise isinkwa ku-Thandi nge-R15, u-Sipho ukhokhile');
+  });
+
+  it('puts the name back in the reading', () => {
+    const r = redact('Sold 2 bread to tendai, she pays friday', []);
+    expect(restore({ person: '[PERSON_1]' }, r.map, 'Sold 2 bread to tendai, she pays friday')).toEqual({ person: 'tendai' });
+  });
+
+  it('leaves shop words, items and pronouns in a slot alone', () => {
+    for (const said of [
+      'sold 2 bread to the shop for R30',
+      'remember to charge 5 for delivery',
+      'nimeuza mikate 2 kwa KSh 60',
+      'nimemuuzia mikate 2 kwa KSh 60',
+      'nimemuuzia mikate miwili',
+      'nimeuza sukari kwa deni',
+      'nimeuza unga kwa bei ya 120',
+      'nimelipa kodi kwa mpesa',
+      'bought 10 loaves from the wholesaler',
+      'got stock from supplier today',
+      'sold 3 sugar to a customer on credit',
+      'paid 200 to the landlord',
+      'delivered 5 crates to school',
+      'vendu 2 pains à crédit',
+      'vendu 2 pains à la boutique',
+      'Ngithengise isinkwa nge-R15',
+      'Sold 2 iPhone cases',
+      'she paid R30',
+      'who owes me money',
+      'how much did i make today',
+    ]) {
+      expect(redact(said, []).text, said).toBe(said);
+    }
+  });
+
+  it('reads every slot in a sentence and the Kiswahili pay and claim verbs', () => {
+    expect(redact('sold 2 bread to the shop and 3 to tendai', []).text).toBe('sold 2 bread to the shop and 3 to [PERSON_1]');
+    expect(redact('nimemlipa juma 200', []).text).toBe('nimemlipa [PERSON_1] 200');
+    expect(redact('namdai juma 300', []).text).toBe('namdai [PERSON_1] 300');
+    expect(redact('nimemuuzia juma kwa deni', []).text).toBe('nimemuuzia [PERSON_1] kwa deni');
+    expect(redact('nimemuuzia biskuti kwa KSh 20', []).text).toBe('nimemuuzia biskuti kwa KSh 20');
+  });
+
+  it('keeps the words after the name', () => {
+    expect(redact('sold to tendai again', []).text).toBe('sold to [PERSON_1] again');
+    expect(redact('nimeuza mikate kwa juma ni 60', []).text).toBe('nimeuza mikate kwa [PERSON_1] ni 60');
+  });
+});
