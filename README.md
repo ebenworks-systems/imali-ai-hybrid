@@ -12,7 +12,7 @@ The same screen at phone width is in [docs/screenshots/book-390.png](docs/screen
 
 ## What was built during the hackathon
 
-All the code in this repository was written from 12 November 2026, inside the contest period. Imali AI itself was built, tested and piloted with users from April 2026, and launched on 21 October 2026, as a WhatsApp product that runs its model calls in the cloud. None of that product's code is in this repository. From it we carried over the brand: the Imali AI logo, and the Barlow font files, which are third-party fonts under their own licence. We also reused the product idea of a book kept from plain words and what we learned about how shop owners write their entries. The on-device reading, the checks, the name removal, the routing between Nano and the cloud, the offline queue, the question answering and this interface are new.
+All the code in this repository was written from 12 November 2026, inside the contest period. Imali AI was built, tested and piloted with users from April 2026, and launched on 21 October 2026. Its model calls run in the cloud, and none of its code is in this repository. From it we carried over the brand: the Imali AI logo, and the Barlow font files, which are third-party fonts under their own licence. We also reused the product idea of a book kept from plain words and what we learned about how shop owners write their entries. The on-device reading, the checks, the name removal, the routing between Nano and the cloud, the offline queue, the question answering and this interface are new.
 
 ## Why a shop book needs both models
 
